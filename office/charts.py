@@ -7,7 +7,7 @@ BG = Color(28, 28, 34, 255)
 GRID = Color(40, 40, 48, 255)
 MUTED = Color(100, 100, 110, 255)
 
-def draw_line_chart(x: int, y: int, w: int, h: int, points: list[StoragePoint], title: str, color: Color):
+def draw_line_chart(x: int, y: int, w: int, h: int, points: list[StoragePoint], title: str, color: Color, days: int = 7):
     draw_rectangle_rounded(Rectangle(x, y, w, h), 0.08, 8, BG)
     draw_text(title, x + 14, y + 10, 13, MUTED)
     
@@ -15,7 +15,7 @@ def draw_line_chart(x: int, y: int, w: int, h: int, points: list[StoragePoint], 
         draw_text("—", x + w // 2 - 5, y + h // 2, 14, GRID)
         return
     
-    left_pad, top, right_pad, bot = 44, 32, 14, 14
+    left_pad, top, right_pad, bot = 44, 32, 14, 22
     cx, cy, cw, ch = x + left_pad, y + top, w - left_pad - right_pad, h - top - bot
     max_v, min_v = max(p.used_gb for p in points) * 1.05 or 1, min(p.used_gb for p in points) * 0.95
     rng = max_v - min_v or 1
@@ -26,6 +26,16 @@ def draw_line_chart(x: int, y: int, w: int, h: int, points: list[StoragePoint], 
         draw_line(cx, gy, cx + cw, gy, GRID)
         val = max_v - (rng * i / 3)
         draw_text(f"{val:.0f}G", x + 6, gy - 5, 10, MUTED)
+    
+    # X-axis labels
+    if days <= 7:
+        for d in range(1, 8):
+            lx = cx + int(cw * (d - 1) / 6)
+            draw_text(str(d), lx - 3, cy + ch + 4, 10, MUTED)
+    else:
+        for d in range(10, days + 1, 10):
+            lx = cx + int(cw * d / days)
+            draw_text(str(d), lx - 6, cy + ch + 4, 10, MUTED)
     
     for i in range(1, len(points)):
         x1, x2 = cx + int(cw * (i - 1) / (len(points) - 1)), cx + int(cw * i / (len(points) - 1))

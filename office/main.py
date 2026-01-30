@@ -11,7 +11,7 @@ from charts import draw_line_chart, draw_status_card, draw_storage_summary
 from easysort.registry import Registry
 
 MKV_VOLUME = os.getenv("MKV_VOLUME", "/media/easysort/lenovo")
-REFRESH_INTERVAL, HEAVY_INTERVAL, PAD = 30, 900, 24  # 30s light, 15min heavy
+REFRESH_INTERVAL, HEAVY_INTERVAL, PAD = 180, 900, 24  # 3min light, 15min heavy
 
 class Dashboard:
     def __init__(self):
@@ -60,10 +60,10 @@ class Dashboard:
             
             ch = 140
             qw = (w - PAD * 5) // 4
-            draw_line_chart(PAD, y, qw, ch, self.mkv_storage.week_data(), "Local 7d", Color(100, 180, 255, 255))
-            draw_line_chart(PAD * 2 + qw, y, qw, ch, self.supabase_storage.week_data(), "Cloud 7d", Color(180, 130, 255, 255))
-            draw_line_chart(PAD * 3 + qw * 2, y, qw, ch, self.mkv_storage.month_data(2), "Local 60d", Color(100, 180, 255, 255))
-            draw_line_chart(PAD * 4 + qw * 3, y, qw, ch, self.supabase_storage.month_data(2), "Cloud 60d", Color(180, 130, 255, 255))
+            draw_line_chart(PAD, y, qw, ch, self.mkv_storage.week_data(), "Local 7d", Color(100, 180, 255, 255), 7)
+            draw_line_chart(PAD * 2 + qw, y, qw, ch, self.supabase_storage.week_data(), "Cloud 7d", Color(180, 130, 255, 255), 7)
+            draw_line_chart(PAD * 3 + qw * 2, y, qw, ch, self.mkv_storage.month_data(2), "Local 60d", Color(100, 180, 255, 255), 60)
+            draw_line_chart(PAD * 4 + qw * 3, y, qw, ch, self.supabase_storage.month_data(2), "Cloud 60d", Color(180, 130, 255, 255), 60)
             y += ch + PAD
         
         # Devices
