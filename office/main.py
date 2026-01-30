@@ -47,8 +47,9 @@ class Dashboard:
         
         # Header
         draw_text("EASYSORT", PAD, y, 32, WHITE)
+        next_soft = max(0, int(REFRESH_INTERVAL - (get_time() - self.last_refresh)))
         next_heavy = max(0, int(HEAVY_INTERVAL - (get_time() - self.last_heavy)))
-        draw_text(f"sync in {next_heavy // 60}m {next_heavy % 60}s", w - PAD - 140, y + 8, 16, Color(80, 80, 90, 255))
+        draw_text(f"refresh {next_soft}s | sync {next_heavy // 60}m{next_heavy % 60:02d}s", w - PAD - 220, y + 10, 14, Color(80, 80, 90, 255))
         y += 56
         
         # Storage

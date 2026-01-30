@@ -18,7 +18,9 @@ def draw_line_chart(x: int, y: int, w: int, h: int, points: list[StoragePoint], 
     
     left_pad, top, right_pad, bot = 44, 32, 14, 22
     cx, cy, cw, ch = x + left_pad, y + top, w - left_pad - right_pad, h - top - bot
-    max_v, min_v = max(p.used_gb for p in points) * 1.05 or 1, min(p.used_gb for p in points) * 0.95
+    max_v, min_v = max(p.used_gb for p in points), min(p.used_gb for p in points)
+    margin = (max_v - min_v) * 0.1 if max_v != min_v else max_v * 0.01
+    max_v, min_v = max_v + margin, min_v - margin
     rng = max_v - min_v or 1
     
     # Grid + Y-axis labels
