@@ -11,7 +11,7 @@ from charts import draw_line_chart, draw_status_card, draw_storage_summary
 from easysort.registry import Registry
 
 MKV_VOLUME = os.getenv("MKV_VOLUME", "/media/easysort/lenovo")
-REFRESH_INTERVAL, HEAVY_INTERVAL, PAD = 180, 900, 24  # 3min light, 15min heavy
+REFRESH_INTERVAL, HEAVY_INTERVAL, PAD = 180, 1800, 24  # 3min light, 30 min heavy
 
 class Dashboard:
     def __init__(self):
