@@ -11,7 +11,7 @@ from charts import draw_line_chart, draw_status_card, draw_storage_summary
 from easysort.registry import Registry
 
 MKV_VOLUME = os.getenv("MKV_VOLUME", "/media/easysort/lenovo")
-REFRESH_INTERVAL, PAD = 30, 24
+REFRESH_INTERVAL, HEAVY_INTERVAL, PAD = 30, 900, 24  # 30s light, 15min heavy
 
 class Dashboard:
     def __init__(self):
@@ -19,17 +19,25 @@ class Dashboard:
         self.runners: list[RunnerStatus] = []
         self.mkv_storage: StorageHistory | None = None
         self.supabase_storage: StorageHistory | None = None
-        self.last_refresh = self.scroll_y = 0
+        self.last_refresh = self.last_heavy = self.scroll_y = 0
         
-    def refresh(self):
+    def refresh(self, heavy: bool = False):
+        if heavy:
+            try: Registry.SYNC()
+            except Exception as e: print(f"Sync error: {e}")
+            self.last_heavy = get_time()
         self.devices = get_device_health(Registry.backend)
         self.runners = get_runner_health()
         self.mkv_storage, self.supabase_storage = get_all_storage(MKV_VOLUME)
         
     def update(self):
-        if get_time() - self.last_refresh > REFRESH_INTERVAL:
+        t = get_time()
+        if t - self.last_heavy > HEAVY_INTERVAL:
+            self.refresh(heavy=True)
+            self.last_refresh = t
+        elif t - self.last_refresh > REFRESH_INTERVAL:
             self.refresh()
-            self.last_refresh = get_time()
+            self.last_refresh = t
         self.scroll_y = max(0, self.scroll_y - int(get_mouse_wheel_move() * 40))
         
     def draw(self):
