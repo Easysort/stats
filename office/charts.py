@@ -8,6 +8,7 @@ GRID = Color(40, 40, 48, 255)
 MUTED = Color(100, 100, 110, 255)
 
 def draw_line_chart(x: int, y: int, w: int, h: int, points: list[StoragePoint], title: str, color: Color, days: int = 7):
+    from datetime import datetime, timedelta
     draw_rectangle_rounded(Rectangle(x, y, w, h), 0.08, 8, BG)
     draw_text(title, x + 14, y + 10, 13, MUTED)
     
@@ -27,22 +28,27 @@ def draw_line_chart(x: int, y: int, w: int, h: int, points: list[StoragePoint], 
         val = max_v - (rng * i / 3)
         draw_text(f"{val:.0f}G", x + 6, gy - 5, 10, MUTED)
     
-    # X-axis labels
-    if days <= 7:
-        for d in range(1, 8):
-            lx = cx + int(cw * (d - 1) / 6)
-            draw_text(str(d), lx - 3, cy + ch + 4, 10, MUTED)
-    else:
-        for d in range(10, days + 1, 10):
-            lx = cx + int(cw * d / days)
-            draw_text(str(d), lx - 6, cy + ch + 4, 10, MUTED)
+    # X-axis: days ago (0=today on right, increasing left)
+    now = datetime.now()
+    t_start, t_end = now - timedelta(days=days), now
+    step = 1 if days <= 7 else 10
+    for d in range(0, days + 1, step):
+        lx = cx + cw - int(cw * d / days)
+        draw_text(str(d), lx - 3, cy + ch + 4, 10, MUTED)
     
+    # Plot points by their actual timestamp position
     for i in range(1, len(points)):
-        x1, x2 = cx + int(cw * (i - 1) / (len(points) - 1)), cx + int(cw * i / (len(points) - 1))
-        y1 = cy + int(ch * (1 - (points[i - 1].used_gb - min_v) / rng))
-        y2 = cy + int(ch * (1 - (points[i].used_gb - min_v) / rng))
+        p0, p1 = points[i - 1], points[i]
+        x1 = cx + int(cw * (p0.timestamp - t_start).total_seconds() / (days * 86400))
+        x2 = cx + int(cw * (p1.timestamp - t_start).total_seconds() / (days * 86400))
+        y1 = cy + int(ch * (1 - (p0.used_gb - min_v) / rng))
+        y2 = cy + int(ch * (1 - (p1.used_gb - min_v) / rng))
         draw_line_ex(Vector2(x1, y1), Vector2(x2, y2), 2.0, color)
-    draw_circle(x2, y2, 4, color)
+    # Final dot at last point
+    last = points[-1]
+    lx = cx + int(cw * (last.timestamp - t_start).total_seconds() / (days * 86400))
+    ly = cy + int(ch * (1 - (last.used_gb - min_v) / rng))
+    draw_circle(lx, ly, 4, color)
 
 def draw_status_card(x: int, y: int, w: int, name: str, ok: bool, detail: str):
     bg = Color(35, 55, 45, 255) if ok else Color(55, 35, 40, 255)
