@@ -15,14 +15,17 @@ def draw_line_chart(x: int, y: int, w: int, h: int, points: list[StoragePoint], 
         draw_text("—", x + w // 2 - 5, y + h // 2, 14, GRID)
         return
     
-    pad, top = 14, 32
-    cx, cy, cw, ch = x + pad, y + top, w - pad * 2, h - top - pad
+    left_pad, top, right_pad, bot = 44, 32, 14, 14
+    cx, cy, cw, ch = x + left_pad, y + top, w - left_pad - right_pad, h - top - bot
     max_v, min_v = max(p.used_gb for p in points) * 1.05 or 1, min(p.used_gb for p in points) * 0.95
     rng = max_v - min_v or 1
     
+    # Grid + Y-axis labels
     for i in range(4):
         gy = cy + int(ch * i / 3)
         draw_line(cx, gy, cx + cw, gy, GRID)
+        val = max_v - (rng * i / 3)
+        draw_text(f"{val:.0f}G", x + 6, gy - 5, 10, MUTED)
     
     for i in range(1, len(points)):
         x1, x2 = cx + int(cw * (i - 1) / (len(points) - 1)), cx + int(cw * i / (len(points) - 1))

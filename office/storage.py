@@ -52,30 +52,27 @@ def _get_history(name: str) -> list[StoragePoint]:
     data = _load_history().get(name, [])
     return [StoragePoint(datetime.fromisoformat(p["ts"]), p["used"], p["total"]) for p in data]
 
-def get_minikeyvalue_storage(volume_path: str = "/media/easysort/lenovo") -> StorageHistory:
+def get_minikeyvalue_storage(volume_path: str = "/media/easysort/lenovo", save: bool = False) -> StorageHistory:
     """Get minikeyvalue storage from local volume."""
     path = Path(volume_path)
-    # Find the actual mount point (e.g., /media/.../lenovo)
     if path.exists():
         try:
             usage = shutil.disk_usage(path)
             current = StoragePoint(datetime.now(), usage.used / 1e9, usage.total / 1e9)
-            _add_point("minikeyvalue", current)
+            if save: _add_point("minikeyvalue", current)
         except OSError:
             current = StoragePoint(datetime.now(), 0, 0)
     else:
         current = StoragePoint(datetime.now(), 0, 0)
-    
     return StorageHistory("MiniKeyValue", current, _get_history("minikeyvalue"))
 
-def get_supabase_storage() -> StorageHistory:
+def get_supabase_storage(save: bool = False) -> StorageHistory:
     """Get Supabase storage usage (placeholder - needs API integration)."""
     # TODO: Implement actual Supabase storage API call
-    # For now, return mock data that simulates realistic usage
     current = StoragePoint(datetime.now(), 45.2, 100.0)
-    _add_point("supabase", current)
+    if save: _add_point("supabase", current)
     return StorageHistory("Supabase", current, _get_history("supabase"))
 
-def get_all_storage(mkv_path: str = "/media/easysort/lenovo") -> tuple[StorageHistory, StorageHistory]:
-    """Get all storage metrics."""
-    return get_minikeyvalue_storage(mkv_path), get_supabase_storage()
+def get_all_storage(mkv_path: str = "/media/easysort/lenovo", save: bool = False) -> tuple[StorageHistory, StorageHistory]:
+    """Get all storage metrics. Set save=True to record point to history (use sparingly)."""
+    return get_minikeyvalue_storage(mkv_path, save), get_supabase_storage(save)

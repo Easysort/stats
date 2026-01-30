@@ -28,7 +28,7 @@ class Dashboard:
             self.last_heavy = get_time()
         self.devices = get_device_health(Registry.backend)
         self.runners = get_runner_health()
-        self.mkv_storage, self.supabase_storage = get_all_storage(MKV_VOLUME)
+        self.mkv_storage, self.supabase_storage = get_all_storage(MKV_VOLUME, save=heavy)
         
     def update(self):
         t = get_time()
@@ -47,8 +47,8 @@ class Dashboard:
         
         # Header
         draw_text("EASYSORT", PAD, y, 32, WHITE)
-        elapsed = int(get_time() - self.last_refresh)
-        draw_text(f"{elapsed}s", w - PAD - 40, y + 8, 18, Color(80, 80, 90, 255))
+        next_heavy = max(0, int(HEAVY_INTERVAL - (get_time() - self.last_heavy)))
+        draw_text(f"sync in {next_heavy // 60}m {next_heavy % 60}s", w - PAD - 140, y + 8, 16, Color(80, 80, 90, 255))
         y += 56
         
         # Storage
