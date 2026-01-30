@@ -88,7 +88,7 @@ def main():
     init_window(0, 0, "Easysort Stats")
     
     dash = Dashboard()
-    dash.refresh()
+    dash.refresh(heavy=True)
     
     while not window_should_close():
         dash.update()
