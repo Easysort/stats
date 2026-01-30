@@ -3,72 +3,50 @@ from __future__ import annotations
 from pyray import *
 from storage import StoragePoint
 
+BG = Color(28, 28, 34, 255)
+GRID = Color(40, 40, 48, 255)
+MUTED = Color(100, 100, 110, 255)
+
 def draw_line_chart(x: int, y: int, w: int, h: int, points: list[StoragePoint], title: str, color: Color):
-    """Draw a simple line chart with storage data."""
-    # Background
-    draw_rectangle(x, y, w, h, Color(30, 30, 30, 255))
-    draw_rectangle_lines(x, y, w, h, Color(60, 60, 60, 255))
-    
-    # Title
-    draw_text(title, x + 10, y + 5, 14, WHITE)
+    draw_rectangle_rounded(Rectangle(x, y, w, h), 0.08, 8, BG)
+    draw_text(title, x + 14, y + 10, 13, MUTED)
     
     if len(points) < 2:
-        draw_text("No data", x + w // 2 - 25, y + h // 2, 12, GRAY)
+        draw_text("—", x + w // 2 - 5, y + h // 2, 14, GRID)
         return
     
-    # Chart area
-    pad, top_pad = 10, 25
-    cx, cy, cw, ch = x + pad, y + top_pad, w - pad * 2, h - top_pad - pad
+    pad, top = 14, 32
+    cx, cy, cw, ch = x + pad, y + top, w - pad * 2, h - top - pad
+    max_v, min_v = max(p.used_gb for p in points) * 1.05 or 1, min(p.used_gb for p in points) * 0.95
+    rng = max_v - min_v or 1
     
-    # Scale
-    max_val = max(p.used_gb for p in points) * 1.1 or 1
-    min_val = min(p.used_gb for p in points) * 0.9
-    val_range = max_val - min_val or 1
+    for i in range(4):
+        gy = cy + int(ch * i / 3)
+        draw_line(cx, gy, cx + cw, gy, GRID)
     
-    # Draw grid lines
-    for i in range(5):
-        gy = cy + int(ch * i / 4)
-        draw_line(cx, gy, cx + cw, gy, Color(50, 50, 50, 255))
-        val = max_val - (val_range * i / 4)
-        draw_text(f"{val:.0f}G", cx - 5, gy - 6, 10, GRAY)
-    
-    # Draw line
     for i in range(1, len(points)):
-        x1 = cx + int(cw * (i - 1) / (len(points) - 1))
-        x2 = cx + int(cw * i / (len(points) - 1))
-        y1 = cy + int(ch * (1 - (points[i - 1].used_gb - min_val) / val_range))
-        y2 = cy + int(ch * (1 - (points[i].used_gb - min_val) / val_range))
-        draw_line(x1, y1, x2, y2, color)
-        draw_circle(x2, y2, 3, color)
+        x1, x2 = cx + int(cw * (i - 1) / (len(points) - 1)), cx + int(cw * i / (len(points) - 1))
+        y1 = cy + int(ch * (1 - (points[i - 1].used_gb - min_v) / rng))
+        y2 = cy + int(ch * (1 - (points[i].used_gb - min_v) / rng))
+        draw_line_ex(Vector2(x1, y1), Vector2(x2, y2), 2.0, color)
+    draw_circle(x2, y2, 4, color)
 
 def draw_status_card(x: int, y: int, w: int, name: str, ok: bool, detail: str):
-    """Draw a status card for health checks."""
-    color = Color(40, 80, 40, 255) if ok else Color(100, 40, 40, 255)
-    draw_rectangle(x, y, w, 50, color)
-    draw_rectangle_lines(x, y, w, 50, Color(80, 80, 80, 255))
-    
-    # Status indicator
-    indicator = GREEN if ok else RED
-    draw_circle(x + 20, y + 25, 8, indicator)
-    
-    # Text
-    draw_text(name, x + 40, y + 10, 16, WHITE)
-    draw_text(detail, x + 40, y + 30, 12, LIGHTGRAY)
+    bg = Color(35, 55, 45, 255) if ok else Color(55, 35, 40, 255)
+    draw_rectangle_rounded(Rectangle(x, y, w, 50), 0.15, 8, bg)
+    dot = Color(80, 200, 120, 255) if ok else Color(220, 80, 80, 255)
+    draw_circle(x + 18, y + 25, 5, dot)
+    draw_text(name, x + 34, y + 12, 15, WHITE)
+    draw_text(detail, x + 34, y + 30, 12, MUTED)
 
 def draw_storage_summary(x: int, y: int, w: int, name: str, used: float, total: float):
-    """Draw a storage summary bar."""
-    h = 60
-    draw_rectangle(x, y, w, h, Color(30, 30, 30, 255))
-    draw_rectangle_lines(x, y, w, h, Color(60, 60, 60, 255))
-    
-    # Title and values
+    draw_rectangle_rounded(Rectangle(x, y, w, 60), 0.1, 8, BG)
     pct = (used / total * 100) if total > 0 else 0
-    draw_text(name, x + 10, y + 5, 14, WHITE)
-    draw_text(f"{used:.1f} / {total:.1f} GB ({pct:.0f}%)", x + 10, y + 22, 12, LIGHTGRAY)
+    draw_text(name, x + 14, y + 10, 14, WHITE)
+    draw_text(f"{used:.0f}/{total:.0f} GB", x + w - 90, y + 10, 13, MUTED)
     
-    # Progress bar
-    bar_w, bar_h = w - 20, 12
-    draw_rectangle(x + 10, y + 42, bar_w, bar_h, Color(50, 50, 50, 255))
+    bar_w, bar_h, bar_y = w - 28, 10, y + 38
+    draw_rectangle_rounded(Rectangle(x + 14, bar_y, bar_w, bar_h), 0.5, 4, GRID)
     fill_w = int(bar_w * min(pct / 100, 1))
-    bar_color = GREEN if pct < 70 else ORANGE if pct < 90 else RED
-    draw_rectangle(x + 10, y + 42, fill_w, bar_h, bar_color)
+    bar_color = Color(80, 200, 120, 255) if pct < 70 else Color(240, 180, 60, 255) if pct < 90 else Color(220, 80, 80, 255)
+    if fill_w > 0: draw_rectangle_rounded(Rectangle(x + 14, bar_y, fill_w, bar_h), 0.5, 4, bar_color)

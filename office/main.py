@@ -10,10 +10,8 @@ from storage import get_all_storage, StorageHistory
 from charts import draw_line_chart, draw_status_card, draw_storage_summary
 from easysort.registry import Registry
 
-# Config
-WIDTH, HEIGHT = 1280, 800
 MKV_VOLUME = os.getenv("MKV_VOLUME", "/media/easysort/lenovo")
-REFRESH_INTERVAL = 30  # seconds
+REFRESH_INTERVAL, PAD = 30, 24
 
 class Dashboard:
     def __init__(self):
@@ -21,85 +19,64 @@ class Dashboard:
         self.runners: list[RunnerStatus] = []
         self.mkv_storage: StorageHistory | None = None
         self.supabase_storage: StorageHistory | None = None
-        self.last_refresh = 0.0
-        self.scroll_y = 0
+        self.last_refresh = self.scroll_y = 0
         
     def refresh(self):
-        """Refresh all data."""
         self.devices = get_device_health(Registry.backend)
         self.runners = get_runner_health()
         self.mkv_storage, self.supabase_storage = get_all_storage(MKV_VOLUME)
         
     def update(self):
-        """Update dashboard state."""
         if get_time() - self.last_refresh > REFRESH_INTERVAL:
             self.refresh()
             self.last_refresh = get_time()
-        # Scroll
-        self.scroll_y -= int(get_mouse_wheel_move() * 30)
-        self.scroll_y = max(0, self.scroll_y)
+        self.scroll_y = max(0, self.scroll_y - int(get_mouse_wheel_move() * 40))
         
     def draw(self):
-        """Draw dashboard."""
-        clear_background(Color(20, 20, 25, 255))
-        y = 20 - self.scroll_y
+        w, h = get_screen_width(), get_screen_height()
+        clear_background(Color(18, 18, 22, 255))
+        y = PAD - self.scroll_y
         
         # Header
-        draw_text("EASYSORT STATS", 20, y, 28, WHITE)
-        draw_text(f"Last refresh: {self.last_refresh:.0f}s ago", WIDTH - 200, y + 8, 14, GRAY)
-        y += 50
+        draw_text("EASYSORT", PAD, y, 32, WHITE)
+        elapsed = int(get_time() - self.last_refresh)
+        draw_text(f"{elapsed}s", w - PAD - 40, y + 8, 18, Color(80, 80, 90, 255))
+        y += 56
         
-        # Storage Section
-        draw_text("STORAGE", 20, y, 20, Color(150, 150, 150, 255))
-        y += 30
-        
+        # Storage
         if self.mkv_storage and self.supabase_storage:
-            # Summary bars
-            draw_storage_summary(20, y, 300, self.mkv_storage.name, 
-                               self.mkv_storage.current.used_gb, self.mkv_storage.current.total_gb)
-            draw_storage_summary(340, y, 300, self.supabase_storage.name,
-                               self.supabase_storage.current.used_gb, self.supabase_storage.current.total_gb)
-            y += 80
+            cw = (w - PAD * 3) // 2
+            draw_storage_summary(PAD, y, cw, "Local", self.mkv_storage.current.used_gb, self.mkv_storage.current.total_gb)
+            draw_storage_summary(PAD * 2 + cw, y, cw, "Cloud", self.supabase_storage.current.used_gb, self.supabase_storage.current.total_gb)
+            y += 72
             
-            # Charts - 1 week
-            draw_line_chart(20, y, 300, 150, self.mkv_storage.week_data(), "MKV - 1 Week", SKYBLUE)
-            draw_line_chart(340, y, 300, 150, self.supabase_storage.week_data(), "Supabase - 1 Week", VIOLET)
-            
-            # Charts - 2 months
-            draw_line_chart(660, y, 300, 150, self.mkv_storage.month_data(2), "MKV - 2 Months", SKYBLUE)
-            draw_line_chart(980, y, 300, 150, self.supabase_storage.month_data(2), "Supabase - 2 Months", VIOLET)
-            y += 170
+            ch = 140
+            qw = (w - PAD * 5) // 4
+            draw_line_chart(PAD, y, qw, ch, self.mkv_storage.week_data(), "Local 7d", Color(100, 180, 255, 255))
+            draw_line_chart(PAD * 2 + qw, y, qw, ch, self.supabase_storage.week_data(), "Cloud 7d", Color(180, 130, 255, 255))
+            draw_line_chart(PAD * 3 + qw * 2, y, qw, ch, self.mkv_storage.month_data(2), "Local 60d", Color(100, 180, 255, 255))
+            draw_line_chart(PAD * 4 + qw * 3, y, qw, ch, self.supabase_storage.month_data(2), "Cloud 60d", Color(180, 130, 255, 255))
+            y += ch + PAD
         
-        # Devices Section
-        draw_text("DEVICE HEALTH", 20, y, 20, Color(150, 150, 150, 255))
-        y += 30
-        
-        col_w = 300
+        # Devices
+        draw_text("DEVICES", PAD, y, 16, Color(90, 90, 100, 255))
+        y += 28
+        cols = max(1, (w - PAD) // 280)
+        card_w = (w - PAD * (cols + 1)) // cols
         for i, dev in enumerate(self.devices):
-            col = i % 4
-            row = i // 4
-            detail = f"age: {dev.age_minutes}min" if dev.age_minutes else (dev.error or "unknown")
-            draw_status_card(20 + col * (col_w + 10), y + row * 60, col_w, dev.name, dev.ok, detail)
+            detail = f"{dev.age_minutes}m ago" if dev.age_minutes is not None else (dev.error or "—")
+            draw_status_card(PAD + (i % cols) * (card_w + PAD), y + (i // cols) * 58, card_w, dev.name, dev.ok, detail)
+        if self.devices: y += ((len(self.devices) - 1) // cols + 1) * 58 + PAD
         
-        if self.devices:
-            y += ((len(self.devices) - 1) // 4 + 1) * 60 + 20
-        
-        # Runners Section  
-        draw_text("RUNNER HEALTH", 20, y, 20, Color(150, 150, 150, 255))
-        y += 30
-        
-        for i, runner in enumerate(self.runners):
-            col = i % 4
-            row = i // 4
-            detail = f"pending: {runner.jobs_pending} | done: {runner.jobs_completed}"
-            draw_status_card(20 + col * (col_w + 10), y + row * 60, col_w, runner.name, runner.ok, detail)
-        
-        # Footer hint
-        draw_text("Scroll to see more | Auto-refresh every 30s", 20, HEIGHT - 25, 12, GRAY)
+        # Runners
+        draw_text("RUNNERS", PAD, y, 16, Color(90, 90, 100, 255))
+        y += 28
+        for i, r in enumerate(self.runners):
+            draw_status_card(PAD + (i % cols) * (card_w + PAD), y + (i // cols) * 58, card_w, r.name, r.ok, f"{r.jobs_pending} pending")
 
 def main():
-    init_window(WIDTH, HEIGHT, "Easysort Stats")
-    set_target_fps(60)
+    set_config_flags(2 | 64)  # FLAG_FULLSCREEN_MODE | FLAG_VSYNC_HINT
+    init_window(0, 0, "Easysort Stats")
     
     dash = Dashboard()
     dash.refresh()
