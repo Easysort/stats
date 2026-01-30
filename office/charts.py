@@ -28,7 +28,7 @@ def draw_line_chart(x: int, y: int, w: int, h: int, points: list[StoragePoint], 
         gy = cy + int(ch * i / 3)
         draw_line(cx, gy, cx + cw, gy, GRID)
         val = max_v - (rng * i / 3)
-        draw_text(f"{val:.0f}G", x + 6, gy - 5, 10, MUTED)
+        draw_text(f"{val:.2f}G", x + 2, gy - 5, 9, MUTED)
     
     # X-axis: days ago (0=today on right, increasing left)
     now = datetime.now()
