@@ -15,6 +15,7 @@ class DeviceStatus:
     ok: bool
     age_minutes: int | None = None
     last_seen: datetime | None = None
+    last_path: str | None = None
     error: str | None = None
 
 @dataclass
@@ -40,7 +41,7 @@ def get_device_health(registry_backend, max_age_minutes: int = 60) -> list[Devic
         return [DeviceStatus("registry", False, error=str(e))]
     
     # Group files by device and find latest timestamp per device
-    device_latest: dict[str, datetime] = defaultdict(lambda: datetime.min)
+    device_latest: dict[str, tuple[datetime, str]] = defaultdict(lambda: (datetime.min, ""))
     
     for f in files:
         parts = f.parts
@@ -50,17 +51,17 @@ def get_device_health(registry_backend, max_age_minutes: int = 60) -> list[Devic
         if device == "results":
             continue
         if ts := _parse_path_ts(f):
-            if ts > device_latest[device]:
-                device_latest[device] = ts
+            if ts > device_latest[device][0]:
+                device_latest[device] = (ts, str(f))
     
     now, results = datetime.now(), []
     for device in sorted(device_latest.keys(), key=str.lower):
-        ts = device_latest[device]
+        ts, path = device_latest[device]
         if ts == datetime.min:
             results.append(DeviceStatus(device, False, error="no media"))
         else:
             age = int((now - ts).total_seconds() // 60)
-            results.append(DeviceStatus(device, age <= max_age_minutes, age, ts))
+            results.append(DeviceStatus(device, age <= max_age_minutes, age, ts, path))
     
     return results
 

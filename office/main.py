@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 from pyray import *
 from health import get_device_health, get_runner_health, DeviceStatus, RunnerStatus
 from storage import get_all_storage, StorageHistory
-from charts import draw_line_chart, draw_status_card, draw_storage_summary
+from charts import draw_line_chart, draw_status_card, draw_device_card, draw_storage_summary
 from easysort.registry import Registry
 
 MKV_VOLUME = os.getenv("MKV_VOLUME", "/media/easysort/lenovo")
@@ -72,10 +72,11 @@ class Dashboard:
         y += 28
         cols = max(1, (w - PAD) // 280)
         card_w = (w - PAD * (cols + 1)) // cols
+        device_card_h = 76
         for i, dev in enumerate(self.devices):
             detail = f"{dev.age_minutes}m ago" if dev.age_minutes is not None else (dev.error or "—")
-            draw_status_card(PAD + (i % cols) * (card_w + PAD), y + (i // cols) * 58, card_w, dev.name, dev.ok, detail)
-        if self.devices: y += ((len(self.devices) - 1) // cols + 1) * 58 + PAD
+            draw_device_card(PAD + (i % cols) * (card_w + PAD), y + (i // cols) * device_card_h, card_w, dev.name, dev.ok, detail, dev.last_path)
+        if self.devices: y += ((len(self.devices) - 1) // cols + 1) * device_card_h + PAD
         
         # Runners
         draw_text("RUNNERS", PAD, y, 16, Color(90, 90, 100, 255))

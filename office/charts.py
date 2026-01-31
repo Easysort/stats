@@ -60,6 +60,19 @@ def draw_status_card(x: int, y: int, w: int, name: str, ok: bool, detail: str):
     draw_text(name, x + 34, y + 12, 15, WHITE)
     draw_text(detail, x + 34, y + 30, 12, MUTED)
 
+def draw_device_card(x: int, y: int, w: int, name: str, ok: bool, detail: str, path: str | None):
+    bg = Color(35, 55, 45, 255) if ok else Color(55, 35, 40, 255)
+    draw_rectangle_rounded(Rectangle(x, y, w, 68), 0.15, 8, bg)
+    dot = Color(80, 200, 120, 255) if ok else Color(220, 80, 80, 255)
+    draw_circle(x + 18, y + 20, 5, dot)
+    draw_text(name, x + 34, y + 8, 15, WHITE)
+    draw_text(detail, x + 34, y + 26, 12, MUTED)
+    if path:
+        # Truncate path from the left if too long
+        max_chars = (w - 48) // 6
+        display_path = path if len(path) <= max_chars else "..." + path[-(max_chars - 3):]
+        draw_text(display_path, x + 34, y + 46, 10, Color(70, 70, 80, 255))
+
 def draw_storage_summary(x: int, y: int, w: int, name: str, used: float, total: float):
     draw_rectangle_rounded(Rectangle(x, y, w, 60), 0.1, 8, BG)
     pct = (used / total * 100) if total > 0 else 0
