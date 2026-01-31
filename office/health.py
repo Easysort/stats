@@ -27,9 +27,14 @@ class RunnerStatus:
     last_run: datetime | None = None
 
 def _parse_path_ts(path: Path) -> datetime | None:
-    """Extract timestamp from path like argo/Device/2025/01/30/12/123456.mp4"""
+    """Extract timestamp from path like argo/Device/2025/01/30/12/123456.mp4
+    
+    Path format: yyyy/mm/dd/hh/HHMMSS.ext where filename HHMMSS is hour/minute/second.
+    """
     if m := TS_RE.search(str(path)):
-        y, mo, d, h, mi, s = int(m[1]), int(m[2]), int(m[3]), int(m[4]), int(m[5]), int(m[6])
+        y, mo, d = int(m[1]), int(m[2]), int(m[3])
+        # Filename is HHMMSS: m[5]=hour, m[6]=minute, m[7]=second
+        h, mi, s = int(m[5]), int(m[6]), int(m[7])
         return datetime(y, mo, d, h, mi, s)
     return None
 

@@ -71,7 +71,7 @@ def draw_device_card(x: int, y: int, w: int, name: str, ok: bool, detail: str, p
         # Truncate path from the left if too long
         max_chars = (w - 48) // 6
         display_path = path if len(path) <= max_chars else "..." + path[-(max_chars - 3):]
-        draw_text(display_path, x + 34, y + 46, 10, Color(70, 70, 80, 255))
+        draw_text(display_path, x + 34, y + 46, 10, Color(120, 120, 130, 255))
 
 def draw_storage_summary(x: int, y: int, w: int, name: str, used: float, total: float):
     draw_rectangle_rounded(Rectangle(x, y, w, 60), 0.1, 8, BG)
