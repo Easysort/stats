@@ -138,6 +138,13 @@ def _check_verdis_uploader(registry_backend) -> RunnerStatus:
     return RunnerStatus("verdis-uploader", ok=ok, detail=f"{age_min}m ago", 
                        path=f"verdis/gadstrup/5/{latest_folder}")
 
+def _parse_image_ts(filename: str) -> datetime | None:
+    """Extract timestamp from image filename like 20260128_103000.png or 20260128_103000_001.png."""
+    if m := VERDIS_TS_RE.search(filename):
+        d, t = m[1], m[2]
+        return datetime(int(d[:4]), int(d[4:6]), int(d[6:8]), int(t[:2]), int(t[2:4]), int(t[4:6]))
+    return None
+
 def _check_verdis_inference(registry_backend) -> RunnerStatus:
     """Check verdis belt inference - find oldest folder missing results (last 7 days only)."""
     if registry_backend is None:
@@ -150,16 +157,17 @@ def _check_verdis_inference(registry_backend) -> RunnerStatus:
         return RunnerStatus("verdis-belt-inference", ok=False, detail=str(e)[:30])
     
     # Get result hash - using the known ID for VejebodRunnerJob.RegistryResult
-    # Hash is in the filename like: image.jpg -> folder/image/HASH.json
     result_hash = "94733505"  # First 8 chars of the RegistryResult id
     
-    # Only check folders from the past 7 days
+    # Build set of existing result files for O(1) lookup (much faster than EXISTS_MULTIPLE)
+    result_files = {str(f) for f in files if result_hash in str(f)}
+    
+    # Only check images from the past 7 days (based on image filename timestamp)
     cutoff = datetime.now() - timedelta(days=7)
     
-    # Collect image files from recent folders only
-    print("[verdis-belt-inference] Collecting recent image files...")
-    image_files: list[tuple[Path, str, datetime]] = []  # (path, folder_name, ts)
-    seen_folders: set[str] = set()
+    # Collect recent images and check results in one pass
+    print("[verdis-belt-inference] Scanning recent images...")
+    folder_info: dict[str, tuple[datetime, bool, str]] = {}  # folder -> (ts, has_result, img_path)
     skipped_old = 0
     
     for f in files:
@@ -170,49 +178,36 @@ def _check_verdis_inference(registry_backend) -> RunnerStatus:
             continue
         
         folder_name = parts[3]
-        if folder_name in seen_folders:
+        if folder_name in folder_info:
             continue  # Only check first image per folder
         
-        ts = _parse_verdis_folder_ts(folder_name)
+        # Parse timestamp from image filename
+        ts = _parse_image_ts(f.name)
+        if ts is None:
+            # Fallback to folder name
+            ts = _parse_verdis_folder_ts(folder_name)
         if ts is None:
             continue
         
-        seen_folders.add(folder_name)
-        
-        # Skip folders older than cutoff
+        # Skip images older than cutoff
         if ts < cutoff:
             skipped_old += 1
             continue
         
-        image_files.append((f, folder_name, ts))
+        # Check if result exists using set lookup (O(1))
+        result_path = f"verdis/gadstrup/5/{folder_name}/{f.stem}/{result_hash}.json"
+        has_result = result_path in result_files
+        
+        folder_info[folder_name] = (ts, has_result, str(f))
     
-    if not image_files:
-        return RunnerStatus("verdis-belt-inference", ok=True, detail=f"no recent folders (skipped {skipped_old} old)")
-    
-    # Build expected result paths for recent images only
-    print(f"[verdis-belt-inference] Checking {len(image_files)} recent folders (skipped {skipped_old} older than 7d)...")
-    result_paths = [
-        f"verdis/gadstrup/5/{folder}/{img.stem}/{result_hash}.json"
-        for img, folder, _ in image_files
-    ]
-    
-    # Use EXISTS_MULTIPLE for efficient batch checking
-    exists_results = registry_backend.EXISTS_MULTIPLE(result_paths)
-    
-    # Build folder info with results
-    folder_info: dict[str, tuple[datetime, bool, str]] = {}
-    for (img, folder, ts), has_result in tqdm(
-        zip(image_files, exists_results), 
-        total=len(image_files), 
-        desc="Processing results"
-    ):
-        folder_info[folder] = (ts, has_result, str(img))
+    if not folder_info:
+        return RunnerStatus("verdis-belt-inference", ok=True, detail=f"no recent (skipped {skipped_old} old)")
     
     # Count pending (no results)
     pending_folders = [(name, info) for name, info in folder_info.items() if not info[1]]
     pending_count = len(pending_folders)
     
-    print(f"[verdis-belt-inference] Found {pending_count} pending folders out of {len(folder_info)}")
+    print(f"[verdis-belt-inference] Checked {len(folder_info)} recent, {pending_count} pending (skipped {skipped_old} old)")
     
     if pending_count == 0:
         # All done - find the most recent processed folder
