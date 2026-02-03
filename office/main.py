@@ -27,7 +27,7 @@ class Dashboard:
             except Exception as e: print(f"Sync error: {e}")
             self.last_heavy = get_time()
         self.devices = get_device_health(Registry.backend)
-        self.runners = get_runner_health()
+        self.runners = get_runner_health(Registry.backend)
         self.mkv_storage, self.supabase_storage = get_all_storage(MKV_VOLUME, save=heavy)
         
     def update(self):
@@ -81,8 +81,9 @@ class Dashboard:
         # Runners
         draw_text("RUNNERS", PAD, y, 16, Color(90, 90, 100, 255))
         y += 28
+        runner_card_h = 76
         for i, r in enumerate(self.runners):
-            draw_status_card(PAD + (i % cols) * (card_w + PAD), y + (i // cols) * 58, card_w, r.name, r.ok, f"{r.jobs_pending} pending")
+            draw_status_card(PAD + (i % cols) * (card_w + PAD), y + (i // cols) * runner_card_h, card_w, r.name, r.ok, r.detail, r.warn, r.path)
 
 def main():
     set_config_flags(2 | 64)  # FLAG_FULLSCREEN_MODE | FLAG_VSYNC_HINT
