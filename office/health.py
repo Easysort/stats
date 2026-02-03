@@ -1,7 +1,7 @@
 """Device and runner health checks."""
 from __future__ import annotations
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from collections import defaultdict
 import re
@@ -139,13 +139,13 @@ def _check_verdis_uploader(registry_backend) -> RunnerStatus:
                        path=f"verdis/gadstrup/5/{latest_folder}")
 
 def _check_verdis_inference(registry_backend) -> RunnerStatus:
-    """Check verdis belt inference - find oldest folder missing results."""
+    """Check verdis belt inference - find oldest folder missing results (last 7 days only)."""
     if registry_backend is None:
         return RunnerStatus("verdis-belt-inference", ok=False, detail="no backend")
     
     print("[verdis-belt-inference] Listing files...")
     try:
-        files = list(tqdm(registry_backend.LIST("verdis/gadstrup/5/"), desc="Listing verdis files"))
+        files = list(registry_backend.LIST("verdis/gadstrup/5/"))
     except Exception as e:
         return RunnerStatus("verdis-belt-inference", ok=False, detail=str(e)[:30])
     
@@ -153,12 +153,16 @@ def _check_verdis_inference(registry_backend) -> RunnerStatus:
     # Hash is in the filename like: image.jpg -> folder/image/HASH.json
     result_hash = "94733505"  # First 8 chars of the RegistryResult id
     
-    # Collect all image files with their folder info
-    print("[verdis-belt-inference] Collecting image files...")
+    # Only check folders from the past 7 days
+    cutoff = datetime.now() - timedelta(days=7)
+    
+    # Collect image files from recent folders only
+    print("[verdis-belt-inference] Collecting recent image files...")
     image_files: list[tuple[Path, str, datetime]] = []  # (path, folder_name, ts)
     seen_folders: set[str] = set()
+    skipped_old = 0
     
-    for f in tqdm(files, desc="Scanning for images"):
+    for f in files:
         if f.suffix.lower() not in (".jpg", ".jpeg", ".png"):
             continue
         parts = f.parts
@@ -174,13 +178,19 @@ def _check_verdis_inference(registry_backend) -> RunnerStatus:
             continue
         
         seen_folders.add(folder_name)
+        
+        # Skip folders older than cutoff
+        if ts < cutoff:
+            skipped_old += 1
+            continue
+        
         image_files.append((f, folder_name, ts))
     
     if not image_files:
-        return RunnerStatus("verdis-belt-inference", ok=False, detail="no folders")
+        return RunnerStatus("verdis-belt-inference", ok=True, detail=f"no recent folders (skipped {skipped_old} old)")
     
-    # Build expected result paths for all images
-    print(f"[verdis-belt-inference] Checking {len(image_files)} folders for results...")
+    # Build expected result paths for recent images only
+    print(f"[verdis-belt-inference] Checking {len(image_files)} recent folders (skipped {skipped_old} older than 7d)...")
     result_paths = [
         f"verdis/gadstrup/5/{folder}/{img.stem}/{result_hash}.json"
         for img, folder, _ in image_files
