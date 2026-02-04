@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from pyray import *
-from health import get_device_health, get_runner_health, DeviceStatus, RunnerStatus
+from health import get_device_health, get_runner_health, get_tracking_health, DeviceStatus, RunnerStatus
 from storage import get_all_storage, StorageHistory
 from charts import draw_line_chart, draw_status_card, draw_device_card, draw_storage_summary
 from easysort.registry import Registry
@@ -17,6 +17,7 @@ class Dashboard:
     def __init__(self):
         self.devices: list[DeviceStatus] = []
         self.runners: list[RunnerStatus] = []
+        self.tracking: list[RunnerStatus] = []
         self.mkv_storage: StorageHistory | None = None
         self.supabase_storage: StorageHistory | None = None
         self.last_refresh = self.last_heavy = self.scroll_y = 0
@@ -28,6 +29,7 @@ class Dashboard:
             self.last_heavy = get_time()
         self.devices = get_device_health(Registry.backend)
         self.runners = get_runner_health(Registry.backend)
+        self.tracking = get_tracking_health(heavy)
         self.mkv_storage, self.supabase_storage = get_all_storage(MKV_VOLUME, save=heavy)
         
     def update(self):
@@ -84,6 +86,13 @@ class Dashboard:
         runner_card_h = 76
         for i, r in enumerate(self.runners):
             draw_status_card(PAD + (i % cols) * (card_w + PAD), y + (i // cols) * runner_card_h, card_w, r.name, r.ok, r.detail, r.warn, r.path)
+        if self.runners: y += ((len(self.runners) - 1) // cols + 1) * runner_card_h + PAD
+        
+        # Tracking Service
+        draw_text("TRACKING SERVICE", PAD, y, 16, Color(90, 90, 100, 255))
+        y += 28
+        for i, t in enumerate(self.tracking):
+            draw_status_card(PAD + (i % cols) * (card_w + PAD), y + (i // cols) * runner_card_h, card_w, t.name, t.ok, t.detail, t.warn, t.path)
 
 def main():
     set_config_flags(2 | 64)  # FLAG_FULLSCREEN_MODE | FLAG_VSYNC_HINT

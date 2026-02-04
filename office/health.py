@@ -7,6 +7,9 @@ from collections import defaultdict
 import re
 from tqdm import tqdm
 
+from supabase import create_client
+from easysort.helpers import SUPABASE_KEY, SUPABASE_URL
+
 SUFFIXES = {".mp4", ".jpg", ".jpeg", ".png"}
 TS_RE = re.compile(r"(\d{4})/(\d{2})/(\d{2})/(\d{2})/(\d{2})(\d{2})(\d{2})")
 VERDIS_TS_RE = re.compile(r"(\d{8})_(\d{6})")  # YYYYMMDD_HHMMSS folder format
@@ -86,16 +89,63 @@ def get_runner_health(registry_backend=None) -> list[RunnerStatus]:
     """Get health status for runners."""
     results = []
     
-    # 1. Argo processor - not implemented (yellow)
-    results.append(RunnerStatus("argo-processor", ok=True, warn=True, detail="not implemented"))
-    
-    # 2. Verdis uploader - check last folder
+    # 1. Verdis uploader - check last folder
     results.append(_check_verdis_uploader(registry_backend))
     
-    # 3. Verdis belt inference - check results
+    # 2. Verdis belt inference - check results
     results.append(_check_verdis_inference(registry_backend))
     
     return results
+
+def get_tracking_health(heavy: bool = False) -> list[RunnerStatus]:
+    """Get health status for tracking services. Only checks on heavy sync."""
+    results = []
+    
+    # Argo week check - only on heavy sync
+    if heavy:
+        results.append(_check_argo_week())
+    else:
+        results.append(RunnerStatus("argo-week-check", ok=True, warn=True, detail="waiting for sync"))
+    
+    return results
+
+def _check_argo_week() -> RunnerStatus:
+    """Check if last week and last month results are in Supabase."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return RunnerStatus("argo-week-check", ok=False, detail="no supabase config")
+    
+    try:
+        client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        bucket = client.storage.from_("easytrack")
+        files = bucket.list("argo/tent")
+        file_names = {f["name"] for f in files}
+    except Exception as e:
+        return RunnerStatus("argo-week-check", ok=False, detail=str(e)[:30])
+    
+    now = datetime.now()
+    year, week, _ = now.isocalendar()
+    
+    # Check last week (current week - 1)
+    last_week = week - 1 if week > 1 else 52
+    last_week_year = year if week > 1 else year - 1
+    last_week_file = f"week_{last_week}_{last_week_year}.json"
+    has_last_week = last_week_file in file_names
+    
+    # Check last month (if we're past the first week of the month)
+    last_month = now.month - 1 if now.month > 1 else 12
+    last_month_year = year if now.month > 1 else year - 1
+    last_month_file = f"month_{last_month}_{last_month_year}.json"
+    has_last_month = last_month_file in file_names
+    
+    # Build status
+    missing = []
+    if not has_last_week: missing.append(f"week {last_week}")
+    if not has_last_month: missing.append(f"month {last_month}")
+    
+    if not missing:
+        return RunnerStatus("argo-week-check", ok=True, detail=f"week {last_week} + month {last_month} ✓")
+    
+    return RunnerStatus("argo-week-check", ok=False, detail=f"missing: {', '.join(missing)}")
 
 def _check_verdis_uploader(registry_backend) -> RunnerStatus:
     """Check verdis uploader health - last folder should be < 10 min old during active hours."""
