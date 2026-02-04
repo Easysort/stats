@@ -98,21 +98,15 @@ def get_runner_health(registry_backend=None) -> list[RunnerStatus]:
     return results
 
 def get_tracking_health(heavy: bool = False) -> list[RunnerStatus]:
-    """Get health status for tracking services. Only checks on heavy sync."""
+    """Get health status for tracking services. Checks on every sync."""
+    return _check_argo_weeks()
+
+def _check_argo_weeks() -> list[RunnerStatus]:
+    """Check argo week/month results in Supabase - returns status for last week and last month."""
     results = []
     
-    # Argo week check - only on heavy sync
-    if heavy:
-        results.append(_check_argo_week())
-    else:
-        results.append(RunnerStatus("argo-week-check", ok=True, warn=True, detail="waiting for sync"))
-    
-    return results
-
-def _check_argo_week() -> RunnerStatus:
-    """Check if last week and last month results are in Supabase."""
     if not SUPABASE_URL or not SUPABASE_KEY:
-        return RunnerStatus("argo-week-check", ok=False, detail="no supabase config")
+        return [RunnerStatus("argo-tracking", ok=False, detail="no supabase config")]
     
     try:
         client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -120,32 +114,79 @@ def _check_argo_week() -> RunnerStatus:
         files = bucket.list("argo/tent")
         file_names = {f["name"] for f in files}
     except Exception as e:
-        return RunnerStatus("argo-week-check", ok=False, detail=str(e)[:30])
+        return [RunnerStatus("argo-tracking", ok=False, detail=str(e)[:30])]
     
     now = datetime.now()
-    year, week, _ = now.isocalendar()
+    year, current_week, _ = now.isocalendar()
     
-    # Check last week (current week - 1)
-    last_week = week - 1 if week > 1 else 52
-    last_week_year = year if week > 1 else year - 1
-    last_week_file = f"week_{last_week}_{last_week_year}.json"
-    has_last_week = last_week_file in file_names
+    # Check last 4 weeks
+    week_status = []
+    for i in range(1, 5):  # weeks 1-4 ago
+        w = current_week - i
+        y = year
+        if w < 1:
+            w += 52
+            y -= 1
+        week_file = f"week_{w}_{y}.json"
+        has_week = week_file in file_names
+        week_status.append((w, y, has_week))
     
-    # Check last month (if we're past the first week of the month)
-    last_month = now.month - 1 if now.month > 1 else 12
-    last_month_year = year if now.month > 1 else year - 1
-    last_month_file = f"month_{last_month}_{last_month_year}.json"
-    has_last_month = last_month_file in file_names
+    # Build week detail text
+    week_parts = []
+    missing_weeks = []
+    for w, y, has in week_status:
+        if has:
+            week_parts.append(f"w{w}✓")
+        else:
+            week_parts.append(f"w{w}✗")
+            missing_weeks.append(w)
     
-    # Build status
-    missing = []
-    if not has_last_week: missing.append(f"week {last_week}")
-    if not has_last_month: missing.append(f"month {last_month}")
+    week_detail = " ".join(week_parts)
+    week_ok = len(missing_weeks) == 0
+    week_warn = len(missing_weeks) == 1 and missing_weeks[0] == week_status[0][0]  # Only last week missing is warn
     
-    if not missing:
-        return RunnerStatus("argo-week-check", ok=True, detail=f"week {last_week} + month {last_month} ✓")
+    results.append(RunnerStatus(
+        "argo-weeks", 
+        ok=week_ok or week_warn,
+        warn=week_warn,
+        detail=week_detail
+    ))
     
-    return RunnerStatus("argo-week-check", ok=False, detail=f"missing: {', '.join(missing)}")
+    # Check last 2 months
+    month_status = []
+    for i in range(1, 3):  # months 1-2 ago
+        m = now.month - i
+        y = year
+        if m < 1:
+            m += 12
+            y -= 1
+        month_file = f"month_{m}_{y}.json"
+        has_month = month_file in file_names
+        month_status.append((m, y, has_month))
+    
+    # Build month detail text
+    month_parts = []
+    missing_months = []
+    for m, y, has in month_status:
+        month_name = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][m-1]
+        if has:
+            month_parts.append(f"{month_name}✓")
+        else:
+            month_parts.append(f"{month_name}✗")
+            missing_months.append(m)
+    
+    month_detail = " ".join(month_parts)
+    month_ok = len(missing_months) == 0
+    month_warn = len(missing_months) == 1 and missing_months[0] == month_status[0][0]  # Only last month missing is warn
+    
+    results.append(RunnerStatus(
+        "argo-months",
+        ok=month_ok or month_warn,
+        warn=month_warn,
+        detail=month_detail
+    ))
+    
+    return results
 
 def _check_verdis_uploader(registry_backend) -> RunnerStatus:
     """Check verdis uploader health - last folder should be < 10 min old during active hours."""
