@@ -8,7 +8,10 @@ from pyray import *
 from health import get_device_health, get_runner_health, get_tracking_health, DeviceStatus, RunnerStatus
 from storage import get_all_storage, StorageHistory
 from charts import draw_line_chart, draw_status_card, draw_device_card, draw_storage_summary
-from easysort.registry import Registry
+from easysort.registry import RegistryBase
+from easysort.helpers import REGISTRY_LOCAL_IP
+
+Registry = RegistryBase(base=REGISTRY_LOCAL_IP)
 
 MKV_VOLUME = os.getenv("MKV_VOLUME", "/media/easysort/lenovo")
 REFRESH_INTERVAL, HEAVY_INTERVAL, PAD = 180, 1800, 24  # 3min light, 30 min heavy
