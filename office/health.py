@@ -240,38 +240,44 @@ def _check_verdis_inference(registry_backend) -> RunnerStatus:
     """Check verdis belt inference - find oldest folder missing results (last 7 days only)."""
     if registry_backend is None:
         return RunnerStatus("verdis-belt-inference", ok=False, detail="no backend")
-    
+
     print("[verdis-belt-inference] Listing files...")
     try:
         files = list(registry_backend.LIST("verdis/gadstrup/5/"))
     except Exception as e:
         return RunnerStatus("verdis-belt-inference", ok=False, detail=str(e)[:30])
-    
-    # Get result hash - using the known ID for VejebodRunnerJob.RegistryResult
-    result_hash = "94733505"  # First 8 chars of the RegistryResult id
-    
-    # Build set of existing result files for O(1) lookup (much faster than EXISTS_MULTIPLE)
-    result_files = {str(f) for f in files if result_hash in str(f)}
-    
+
+    # Registry stores results at verdis/gadstrup/5/FOLDER/IMAGE_STEM/<type_hash>.json (type_hash = sha256, not UUID)
+    # Build set of (folder_name, image_stem) that have at least one result file
+    has_result_keys: set[tuple[str, str]] = set()
+    for f in files:
+        parts = f.parts
+        if len(parts) != 6 or parts[:3] != ("verdis", "gadstrup", "5"):
+            continue
+        if f.suffix != ".json" or "schema" in f.name:
+            continue
+        # path is verdis/gadstrup/5/FOLDER/STEM/hash.json
+        has_result_keys.add((parts[3], parts[4]))
+
     # Only check images from the past 7 days (based on image filename timestamp)
     cutoff = datetime.now() - timedelta(days=7)
-    
+
     # Collect recent images and check results in one pass
     print("[verdis-belt-inference] Scanning recent images...")
     folder_info: dict[str, tuple[datetime, bool, str]] = {}  # folder -> (ts, has_result, img_path)
     skipped_old = 0
-    
+
     for f in files:
         if f.suffix.lower() not in (".jpg", ".jpeg", ".png"):
             continue
         parts = f.parts
         if len(parts) < 5:  # verdis/gadstrup/5/FOLDER/image.jpg
             continue
-        
+
         folder_name = parts[3]
         if folder_name in folder_info:
             continue  # Only check first image per folder
-        
+
         # Parse timestamp from image filename
         ts = _parse_image_ts(f.name)
         if ts is None:
@@ -279,16 +285,15 @@ def _check_verdis_inference(registry_backend) -> RunnerStatus:
             ts = _parse_verdis_folder_ts(folder_name)
         if ts is None:
             continue
-        
+
         # Skip images older than cutoff
         if ts < cutoff:
             skipped_old += 1
             continue
-        
-        # Check if result exists using set lookup (O(1))
-        result_path = f"verdis/gadstrup/5/{folder_name}/{f.stem}/{result_hash}.json"
-        has_result = result_path in result_files
-        
+
+        # Check if this image has a result (any .json under folder/stem, matching registry layout)
+        has_result = (folder_name, f.stem) in has_result_keys
+
         folder_info[folder_name] = (ts, has_result, str(f))
     
     if not folder_info:
