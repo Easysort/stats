@@ -70,10 +70,14 @@ def draw_status_card(x: int, y: int, w: int, name: str, ok: bool, detail: str, w
         display_path = path if len(path) <= max_chars else "..." + path[-(max_chars - 3):]
         draw_text(display_path, x + 34, y + 46, 10, Color(120, 120, 130, 255))
 
-def draw_device_card(x: int, y: int, w: int, name: str, ok: bool, detail: str, path: str | None):
-    bg = Color(35, 55, 45, 255) if ok else Color(55, 35, 40, 255)
+def draw_device_card(x: int, y: int, w: int, name: str, ok: bool, detail: str, path: str | None, over_temp: bool = False):
+    if ok:
+        bg, dot = Color(35, 55, 45, 255), Color(80, 200, 120, 255)
+    elif over_temp:
+        bg, dot = Color(60, 25, 25, 255), Color(255, 50, 50, 255)
+    else:
+        bg, dot = Color(55, 35, 40, 255), Color(220, 80, 80, 255)
     draw_rectangle_rounded(Rectangle(x, y, w, 68), 0.15, 8, bg)
-    dot = Color(80, 200, 120, 255) if ok else Color(220, 80, 80, 255)
     draw_circle(x + 18, y + 20, 5, dot)
     draw_text(name, x + 34, y + 8, 15, WHITE)
     draw_text(detail, x + 34, y + 26, 12, MUTED)

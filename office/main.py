@@ -1,36 +1,49 @@
 """Easysort Stats Dashboard - raylib-based monitoring UI."""
 from __future__ import annotations
-import os, sys
+import os
+import sys
+from pathlib import Path
+
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from pyray import *
-from health import get_device_health, get_runner_health, get_tracking_health, DeviceStatus, RunnerStatus
+from health import (
+    get_device_health,
+    get_ip_device_health,
+    get_runner_health,
+    get_tracking_health,
+    DeviceStatus,
+    IPDeviceStatus,
+    RunnerStatus,
+)
 from storage import get_all_storage, StorageHistory
 from charts import draw_line_chart, draw_status_card, draw_device_card, draw_storage_summary
 from easysort.registry import RegistryBase
 from easysort.helpers import REGISTRY_LOCAL_IP
 
 Registry = RegistryBase(base=REGISTRY_LOCAL_IP)
-
+DEVICES_TXT = Path(__file__).parent / "devices.txt"
 MKV_VOLUME = os.getenv("MKV_VOLUME", "/media/easysort/lenovo")
 REFRESH_INTERVAL, HEAVY_INTERVAL, PAD = 180, 1800, 24  # 3min light, 30 min heavy
 
 class Dashboard:
     def __init__(self):
         self.devices: list[DeviceStatus] = []
+        self.ip_devices: list[IPDeviceStatus] = []
         self.runners: list[RunnerStatus] = []
         self.tracking: list[RunnerStatus] = []
         self.mkv_storage: StorageHistory | None = None
         self.supabase_storage: StorageHistory | None = None
         self.last_refresh = self.last_heavy = self.scroll_y = 0
-        
+
     def refresh(self, heavy: bool = False):
         if heavy:
             try: Registry.SYNC()
             except Exception as e: print(f"Sync error: {e}")
             self.last_heavy = get_time()
         self.devices = get_device_health(Registry.backend)
+        self.ip_devices = get_ip_device_health(DEVICES_TXT)
         self.runners = get_runner_health(Registry.backend)
         self.tracking = get_tracking_health(heavy)
         self.mkv_storage, self.supabase_storage = get_all_storage(MKV_VOLUME, save=heavy)
@@ -81,8 +94,20 @@ class Dashboard:
         for i, dev in enumerate(self.devices):
             detail = f"{dev.age_minutes}m ago" if dev.age_minutes is not None else (dev.error or "—")
             draw_device_card(PAD + (i % cols) * (card_w + PAD), y + (i // cols) * device_card_h, card_w, dev.name, dev.ok, detail, dev.last_path)
-        if self.devices: y += ((len(self.devices) - 1) // cols + 1) * device_card_h + PAD
-        
+        if self.devices:
+            y += ((len(self.devices) - 1) // cols + 1) * device_card_h + PAD
+
+        # IP devices (from devices.txt, /health on each)
+        if self.ip_devices:
+            draw_text("IP DEVICES", PAD, y, 16, Color(90, 90, 100, 255))
+            y += 28
+            for i, dev in enumerate(self.ip_devices):
+                draw_device_card(
+                    PAD + (i % cols) * (card_w + PAD), y + (i // cols) * device_card_h, card_w,
+                    dev.name, dev.ok, dev.detail, None, over_temp=dev.over_temp
+                )
+            y += ((len(self.ip_devices) - 1) // cols + 1) * device_card_h + PAD
+
         # Runners
         draw_text("RUNNERS", PAD, y, 16, Color(90, 90, 100, 255))
         y += 28

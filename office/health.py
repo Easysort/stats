@@ -4,7 +4,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from collections import defaultdict
+import json
 import re
+import urllib.request
 from tqdm import tqdm
 
 from supabase import create_client
@@ -13,6 +15,8 @@ from easysort.helpers import SUPABASE_KEY, SUPABASE_URL
 SUFFIXES = {".mp4", ".jpg", ".jpeg", ".png"}
 TS_RE = re.compile(r"(\d{4})/(\d{2})/(\d{2})/(\d{2})/(\d{2})(\d{2})(\d{2})")
 VERDIS_TS_RE = re.compile(r"(\d{8})_(\d{6})")  # YYYYMMDD_HHMMSS folder format
+IP_DEVICE_HEALTH_TIMEOUT = 5
+IP_DEVICE_TEMP_LIMIT_CELSIUS = 85
 
 @dataclass
 class DeviceStatus:
@@ -22,6 +26,13 @@ class DeviceStatus:
     last_seen: datetime | None = None
     last_path: str | None = None
     error: str | None = None
+
+@dataclass
+class IPDeviceStatus:
+    name: str
+    ok: bool
+    detail: str
+    over_temp: bool = False  # True => show very red (temp > 85°C)
 
 @dataclass
 class RunnerStatus:
@@ -84,6 +95,43 @@ def get_device_health(registry_backend, max_age_minutes: int = 60) -> list[Devic
     
     print(f"[device-health] Found {len(results)} devices")
     return results
+
+
+def get_ip_device_health(devices_txt_path: Path) -> list[IPDeviceStatus]:
+    """Read devices.txt (lines: 'name ip'), call http://{ip}:5000/health, return status. Temp > 85°C => over_temp."""
+    results: list[IPDeviceStatus] = []
+    if not devices_txt_path.exists():
+        return results
+    lines = devices_txt_path.read_text().strip().splitlines()
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(None, 1)
+        if len(parts) != 2:
+            continue
+        name, ip = parts[0], parts[1].strip()
+        url = f"http://{ip}:5000/health"
+        try:
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=IP_DEVICE_HEALTH_TIMEOUT) as resp:
+                data = json.loads(resp.read().decode())
+            camera = data.get("camera", "")
+            status = data.get("status", "")
+            temp = data.get("temperature_celsius")
+            if temp is None:
+                detail = "no temp"
+                ok = False
+                over_temp = False
+            else:
+                detail = f"{float(temp):.1f}°C"
+                over_temp = float(temp) > IP_DEVICE_TEMP_LIMIT_CELSIUS
+                ok = (camera == "ok" and status == "ok" and not over_temp)
+            results.append(IPDeviceStatus(name=name, ok=ok, detail=detail, over_temp=over_temp))
+        except Exception as e:
+            results.append(IPDeviceStatus(name=name, ok=False, detail=str(e)[:40], over_temp=False))
+    return results
+
 
 def get_runner_health(registry_backend=None) -> list[RunnerStatus]:
     """Get health status for runners."""
