@@ -113,7 +113,9 @@ def get_ip_device_health(devices_txt_path: Path) -> list[IPDeviceStatus]:
         name, ip = parts[0], parts[1].strip()
         url = f"http://{ip}:5000/health"
         try:
-            req = urllib.request.Request(url)
+            req = urllib.request.Request(
+                url, headers={"User-Agent": "Mozilla/5.0 (compatible; Easysort-Stats/1.0)"}
+            )
             with urllib.request.urlopen(req, timeout=IP_DEVICE_HEALTH_TIMEOUT) as resp:
                 data = json.loads(resp.read().decode())
             camera = data.get("camera", "")
