@@ -70,7 +70,10 @@ def draw_status_card(x: int, y: int, w: int, name: str, ok: bool, detail: str, w
         display_path = path if len(path) <= max_chars else "..." + path[-(max_chars - 3):]
         draw_text(display_path, x + 34, y + 46, 10, Color(120, 120, 130, 255))
 
-def draw_device_card(x: int, y: int, w: int, name: str, ok: bool, detail: str, path: str | None, over_temp: bool = False):
+def draw_device_card(
+    x: int, y: int, w: int, name: str, ok: bool, detail: str, path: str | None, over_temp: bool = False,
+    checked_ago_seconds: int | None = None,
+):
     if ok:
         bg, dot = Color(35, 55, 45, 255), Color(80, 200, 120, 255)
     elif over_temp:
@@ -86,6 +89,9 @@ def draw_device_card(x: int, y: int, w: int, name: str, ok: bool, detail: str, p
         max_chars = (w - 48) // 6
         display_path = path if len(path) <= max_chars else "..." + path[-(max_chars - 3):]
         draw_text(display_path, x + 34, y + 46, 10, Color(120, 120, 130, 255))
+    elif checked_ago_seconds is not None:
+        ago = f"{checked_ago_seconds // 60}m" if checked_ago_seconds >= 60 else f"{checked_ago_seconds}s"
+        draw_text(f"Checked {ago} ago", x + 34, y + 46, 10, Color(120, 120, 130, 255))
 
 def draw_storage_summary(x: int, y: int, w: int, name: str, used: float, total: float):
     draw_rectangle_rounded(Rectangle(x, y, w, 60), 0.1, 8, BG)

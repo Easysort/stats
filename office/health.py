@@ -7,6 +7,7 @@ from collections import defaultdict
 import json
 import re
 import urllib.request
+import urllib.error
 from tqdm import tqdm
 
 from supabase import create_client
@@ -15,7 +16,7 @@ from easysort.helpers import SUPABASE_KEY, SUPABASE_URL
 SUFFIXES = {".mp4", ".jpg", ".jpeg", ".png"}
 TS_RE = re.compile(r"(\d{4})/(\d{2})/(\d{2})/(\d{2})/(\d{2})(\d{2})(\d{2})")
 VERDIS_TS_RE = re.compile(r"(\d{8})_(\d{6})")  # YYYYMMDD_HHMMSS folder format
-IP_DEVICE_HEALTH_TIMEOUT = 5
+IP_DEVICE_HEALTH_TIMEOUT = 15
 IP_DEVICE_TEMP_LIMIT_CELSIUS = 85
 
 @dataclass
@@ -112,24 +113,58 @@ def get_ip_device_health(devices_txt_path: Path) -> list[IPDeviceStatus]:
             continue
         name, ip = parts[0], parts[1].strip()
         url = f"http://{ip}:5000/health"
+        data = None
         try:
             req = urllib.request.Request(
                 url, headers={"User-Agent": "Mozilla/5.0 (compatible; Easysort-Stats/1.0)"}
             )
-            with urllib.request.urlopen(req, timeout=IP_DEVICE_HEALTH_TIMEOUT) as resp:
-                data = json.loads(resp.read().decode())
-            camera = data.get("camera", "")
-            status = data.get("status", "")
-            temp = data.get("temperature_celsius")
-            if temp is None:
-                detail = "no temp"
-                ok = False
-                over_temp = False
+            try:
+                with urllib.request.urlopen(req, timeout=IP_DEVICE_HEALTH_TIMEOUT) as resp:
+                    data = json.loads(resp.read().decode())
+            except urllib.error.HTTPError as e:
+                if e.code == 503 and e.fp:
+                    try:
+                        data = json.loads(e.read().decode())
+                    except Exception:
+                        data = None
+                if data is None:
+                    results.append(IPDeviceStatus(name=name, ok=False, detail=f"HTTP {e.code}", over_temp=False))
+                    continue
+            if data is None:
+                continue
+            # New schema: temps.cpu_c / battery_c, checks.tmux_running, checks.temps_ok
+            temps = data.get("temps") or {}
+            checks = data.get("checks") or {}
+            if "temps" in data or "checks" in data:
+                temp_val = temps.get("cpu_c") if temps.get("cpu_c") is not None else temps.get("battery_c")
+                if temp_val is not None:
+                    temp_val = float(temp_val)
+                over_temp = temp_val is not None and temp_val > IP_DEVICE_TEMP_LIMIT_CELSIUS
+                temps_ok = checks.get("temps_ok", True)
+                tmux_running = checks.get("tmux_running", False)
+                if temp_val is not None:
+                    temp_src = "batt" if temps.get("cpu_c") is None else ""
+                    temp_str = f"{temp_val:.1f}°C" + (f" {temp_src}" if temp_src else "")
+                else:
+                    temp_str = "no temp"
+                tmux_str = "tmux ✓" if tmux_running else "tmux ✗"
+                detail = f"{temp_str} · {tmux_str}"
+                ok = not over_temp and temps_ok and tmux_running
+                results.append(IPDeviceStatus(name=name, ok=ok, detail=detail, over_temp=over_temp))
             else:
-                detail = f"{float(temp):.1f}°C"
-                over_temp = float(temp) > IP_DEVICE_TEMP_LIMIT_CELSIUS
-                ok = (camera == "ok" and status == "ok" and not over_temp)
-            results.append(IPDeviceStatus(name=name, ok=ok, detail=detail, over_temp=over_temp))
+                # Legacy schema: camera, status, temperature_celsius
+                camera = data.get("camera", "")
+                status = data.get("status", "")
+                temp = data.get("temperature_celsius")
+                if temp is None:
+                    detail = "no temp"
+                    ok = False
+                    over_temp = False
+                else:
+                    detail = f"{float(temp):.1f}°C"
+                    over_temp = float(temp) > IP_DEVICE_TEMP_LIMIT_CELSIUS
+                    ok = (camera == "ok" and status == "ok" and not over_temp)
+                results.append(IPDeviceStatus(name=name, ok=ok, detail=detail, over_temp=over_temp))
         except Exception as e:
             results.append(IPDeviceStatus(name=name, ok=False, detail=str(e)[:40], over_temp=False))
     return results

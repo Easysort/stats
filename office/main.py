@@ -101,10 +101,12 @@ class Dashboard:
         if self.ip_devices:
             draw_text("IP DEVICES", PAD, y, 16, Color(90, 90, 100, 255))
             y += 28
+            checked_ago = int(get_time() - self.last_refresh)
             for i, dev in enumerate(self.ip_devices):
                 draw_device_card(
                     PAD + (i % cols) * (card_w + PAD), y + (i // cols) * device_card_h, card_w,
-                    dev.name, dev.ok, dev.detail, None, over_temp=dev.over_temp
+                    dev.name, dev.ok, dev.detail, None, over_temp=dev.over_temp,
+                    checked_ago_seconds=checked_ago,
                 )
             y += ((len(self.ip_devices) - 1) // cols + 1) * device_card_h + PAD
 
