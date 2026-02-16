@@ -28,12 +28,16 @@ class DeviceStatus:
     last_path: str | None = None
     error: str | None = None
 
+IP_DEVICE_TEMP_HISTORY_MAX = 100
+
 @dataclass
 class IPDeviceStatus:
     name: str
     ok: bool
     detail: str
     over_temp: bool = False  # True => show very red (temp > 85°C)
+    tmux_running: bool = False
+    temp_history: list[tuple[datetime, float | None, bool]] | None = None  # (ts, temp_c, tmux_running), last 100
 
 @dataclass
 class RunnerStatus:
@@ -98,12 +102,64 @@ def get_device_health(registry_backend, max_age_minutes: int = 60) -> list[Devic
     return results
 
 
+def _load_ip_device_temp_history(history_path: Path) -> dict[str, list[dict]]:
+    """Load per-device temp history from JSON. Keys: ts (ISO), temp_c (float or null), tmux_running (bool)."""
+    if not history_path.exists():
+        return {}
+    try:
+        raw = json.loads(history_path.read_text())
+        return {k: v if isinstance(v, list) else [] for k, v in raw.items()}
+    except Exception:
+        return {}
+
+
+def _save_ip_device_temp_history(history_path: Path, all_history: dict[str, list[dict]]) -> None:
+    """Save per-device temp history to JSON."""
+    out = {}
+    for name, entries in all_history.items():
+        out[name] = [
+            {"ts": e["ts"].isoformat() if hasattr(e["ts"], "isoformat") else e["ts"], "temp_c": e["temp_c"], "tmux_running": e["tmux_running"]}
+            for e in entries
+        ]
+    history_path.write_text(json.dumps(out, indent=0))
+
+
+def _history_to_tuples(entries: list[dict]) -> list[tuple[datetime, float | None, bool]]:
+    """Convert JSON entries to (datetime, temp_c|None, tmux_running) with last-known temp carried forward."""
+    result: list[tuple[datetime, float | None, bool]] = []
+    last_temp: float | None = None
+    for e in entries:
+        ts = e.get("ts")
+        if hasattr(ts, "isoformat"):
+            dt = ts
+        elif isinstance(ts, str):
+            try:
+                dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+        else:
+            continue
+        temp = e.get("temp_c")
+        if temp is not None:
+            try:
+                last_temp = float(temp)
+            except (TypeError, ValueError):
+                pass
+        tmux = bool(e.get("tmux_running", False))
+        result.append((dt, last_temp, tmux))
+    return result
+
+
 def get_ip_device_health(devices_txt_path: Path) -> list[IPDeviceStatus]:
-    """Read devices.txt (lines: 'name ip'), call http://{ip}:5000/health, return status. Temp > 85°C => over_temp."""
+    """Read devices.txt (lines: 'name ip'), call http://{ip}:5000/health, return status. Temp > 85°C => over_temp.
+    Persists last 100 (ts, temp_c, tmux_running) per device for the temp-over-time chart."""
     results: list[IPDeviceStatus] = []
     if not devices_txt_path.exists():
         return results
+    history_path = devices_txt_path.parent / "ip_device_temp_history.json"
+    all_history = _load_ip_device_temp_history(history_path)
     lines = devices_txt_path.read_text().strip().splitlines()
+    now = datetime.now()
     for line in lines:
         line = line.strip()
         if not line or line.startswith("#"):
@@ -114,6 +170,11 @@ def get_ip_device_health(devices_txt_path: Path) -> list[IPDeviceStatus]:
         name, ip = parts[0], parts[1].strip()
         url = f"http://{ip}:5000/health"
         data = None
+        temp_val: float | None = None
+        tmux_running = False
+        over_temp = False
+        detail = ""
+        ok = False
         try:
             req = urllib.request.Request(
                 url, headers={"User-Agent": "Mozilla/5.0 (compatible; Easysort-Stats/1.0)"}
@@ -128,11 +189,12 @@ def get_ip_device_health(devices_txt_path: Path) -> list[IPDeviceStatus]:
                     except Exception:
                         data = None
                 if data is None:
-                    results.append(IPDeviceStatus(name=name, ok=False, detail=f"HTTP {e.code}", over_temp=False))
+                    detail = f"HTTP {e.code}"
+                    results.append(_ip_device_result(name, ok, detail, over_temp, tmux_running, all_history, now))
                     continue
             if data is None:
+                results.append(_ip_device_result(name, ok, detail or "no data", over_temp, tmux_running, all_history, now))
                 continue
-            # New schema: temps.cpu_c / battery_c, checks.tmux_running, checks.temps_ok
             temps = data.get("temps") or {}
             checks = data.get("checks") or {}
             if "temps" in data or "checks" in data:
@@ -147,27 +209,45 @@ def get_ip_device_health(devices_txt_path: Path) -> list[IPDeviceStatus]:
                     temp_str = f"{temp_val:.1f}°C" + (f" {temp_src}" if temp_src else "")
                 else:
                     temp_str = "no temp"
-                tmux_str = "tmux ✓" if tmux_running else "tmux ✗"
+                tmux_str = "tmux ok" if tmux_running else "tmux no"
                 detail = f"{temp_str} · {tmux_str}"
                 ok = not over_temp and temps_ok and tmux_running
-                results.append(IPDeviceStatus(name=name, ok=ok, detail=detail, over_temp=over_temp))
             else:
-                # Legacy schema: camera, status, temperature_celsius
                 camera = data.get("camera", "")
                 status = data.get("status", "")
                 temp = data.get("temperature_celsius")
                 if temp is None:
                     detail = "no temp"
-                    ok = False
-                    over_temp = False
                 else:
-                    detail = f"{float(temp):.1f}°C"
-                    over_temp = float(temp) > IP_DEVICE_TEMP_LIMIT_CELSIUS
+                    temp_val = float(temp)
+                    detail = f"{temp_val:.1f}°C"
+                    over_temp = temp_val > IP_DEVICE_TEMP_LIMIT_CELSIUS
                     ok = (camera == "ok" and status == "ok" and not over_temp)
-                results.append(IPDeviceStatus(name=name, ok=ok, detail=detail, over_temp=over_temp))
+            results.append(_ip_device_result(name, ok, detail, over_temp, tmux_running, all_history, now, temp_val))
         except Exception as e:
-            results.append(IPDeviceStatus(name=name, ok=False, detail=str(e)[:40], over_temp=False))
+            detail = str(e)[:40]
+            results.append(_ip_device_result(name, False, detail, False, False, all_history, now))
+    _save_ip_device_temp_history(history_path, all_history)
     return results
+
+
+def _ip_device_result(
+    name: str,
+    ok: bool,
+    detail: str,
+    over_temp: bool,
+    tmux_running: bool,
+    all_history: dict[str, list[dict]],
+    now: datetime,
+    temp_val: float | None = None,
+) -> IPDeviceStatus:
+    """Append one sample to device history, trim to max, return IPDeviceStatus with temp_history."""
+    entries = all_history.setdefault(name, [])
+    entries.append({"ts": now, "temp_c": temp_val, "tmux_running": tmux_running})
+    if len(entries) > IP_DEVICE_TEMP_HISTORY_MAX:
+        entries[:] = entries[-IP_DEVICE_TEMP_HISTORY_MAX:]
+    tuples = _history_to_tuples(entries)
+    return IPDeviceStatus(name=name, ok=ok, detail=detail, over_temp=over_temp, tmux_running=tmux_running, temp_history=tuples)
 
 
 def get_runner_health(registry_backend=None) -> list[RunnerStatus]:
@@ -221,9 +301,9 @@ def _check_argo_weeks() -> list[RunnerStatus]:
     missing_weeks = []
     for w, y, has in week_status:
         if has:
-            week_parts.append(f"w{w}✓")
+            week_parts.append(f"w{w}+")
         else:
-            week_parts.append(f"w{w}✗")
+            week_parts.append(f"w{w}-")
             missing_weeks.append(w)
     
     week_detail = " ".join(week_parts)
@@ -255,9 +335,9 @@ def _check_argo_weeks() -> list[RunnerStatus]:
     for m, y, has in month_status:
         month_name = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][m-1]
         if has:
-            month_parts.append(f"{month_name}✓")
+            month_parts.append(f"{month_name}+")
         else:
-            month_parts.append(f"{month_name}✗")
+            month_parts.append(f"{month_name}-")
             missing_months.append(m)
     
     month_detail = " ".join(month_parts)

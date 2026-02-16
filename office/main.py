@@ -18,7 +18,13 @@ from health import (
     RunnerStatus,
 )
 from storage import get_all_storage, StorageHistory
-from charts import draw_line_chart, draw_status_card, draw_device_card, draw_storage_summary
+from charts import (
+    draw_line_chart,
+    draw_status_card,
+    draw_device_card,
+    draw_storage_summary,
+    draw_ip_device_temp_chart,
+)
 from easysort.registry import RegistryBase
 from easysort.helpers import REGISTRY_LOCAL_IP
 
@@ -97,18 +103,26 @@ class Dashboard:
         if self.devices:
             y += ((len(self.devices) - 1) // cols + 1) * device_card_h + PAD
 
-        # IP devices (from devices.txt, /health on each)
+        # IP devices (from devices.txt, /health on each) with temp-over-time chart
+        ip_card_h = 68
+        temp_chart_h = 72
+        ip_device_row_h = ip_card_h + temp_chart_h
         if self.ip_devices:
             draw_text("IP DEVICES", PAD, y, 16, Color(90, 90, 100, 255))
             y += 28
             checked_ago = int(get_time() - self.last_refresh)
             for i, dev in enumerate(self.ip_devices):
+                px = PAD + (i % cols) * (card_w + PAD)
+                py = y + (i // cols) * ip_device_row_h
                 draw_device_card(
-                    PAD + (i % cols) * (card_w + PAD), y + (i // cols) * device_card_h, card_w,
+                    px, py, card_w,
                     dev.name, dev.ok, dev.detail, None, over_temp=dev.over_temp,
                     checked_ago_seconds=checked_ago,
+                    tmux_running=dev.tmux_running,
                 )
-            y += ((len(self.ip_devices) - 1) // cols + 1) * device_card_h + PAD
+                if dev.temp_history:
+                    draw_ip_device_temp_chart(px, py + ip_card_h, card_w, temp_chart_h, dev.temp_history)
+            y += ((len(self.ip_devices) - 1) // cols + 1) * ip_device_row_h + PAD
 
         # Runners
         draw_text("RUNNERS", PAD, y, 16, Color(90, 90, 100, 255))
