@@ -195,15 +195,23 @@ def get_ip_device_health(devices_txt_path: Path) -> list[IPDeviceStatus]:
             if data is None:
                 results.append(_ip_device_result(name, ok, detail or "no data", over_temp, tmux_running, all_history, now))
                 continue
-            temps = data.get("temps") or {}
+            temps = data.get("temps") if isinstance(data.get("temps"), dict) else {}
             checks = data.get("checks") or {}
             if "temps" in data or "checks" in data:
-                temp_val = temps.get("cpu_c") if temps.get("cpu_c") is not None else temps.get("battery_c")
+                temp_val = (temps.get("cpu_c") if temps.get("cpu_c") is not None else temps.get("battery_c"))
+                if temp_val is None and isinstance(data.get("battery"), dict):
+                    bat = data.get("battery") or {}
+                    temp_val = bat.get("temp_c") or bat.get("temperature")
+                if temp_val is None:
+                    temp_val = data.get("battery_c") or data.get("temperature_celsius")
                 if temp_val is not None:
                     temp_val = float(temp_val)
                 over_temp = temp_val is not None and temp_val > IP_DEVICE_TEMP_LIMIT_CELSIUS
                 temps_ok = checks.get("temps_ok", True)
-                tmux_running = checks.get("tmux_running", False)
+                if "tmux_running" in checks:
+                    tmux_running = bool(checks["tmux_running"])
+                else:
+                    tmux_running = bool(data.get("healthy", False))
                 if temp_val is not None:
                     temp_src = "batt" if temps.get("cpu_c") is None else ""
                     temp_str = f"{temp_val:.1f}°C" + (f" {temp_src}" if temp_src else "")
