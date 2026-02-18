@@ -262,13 +262,13 @@ def get_runner_health(registry_backend=None) -> list[RunnerStatus]:
     """Get health status for runners."""
     results = []
 
-    # Verdis uploaders - check last folder for each camera
-    results.append(_check_verdis_uploader(registry_backend, "verdis/gadstrup/5", "verdis-upload-belt"))
-    results.append(_check_verdis_uploader(registry_backend, "verdis/gadstrup/4", "verdis-upload-bales"))
+    # Verdis uploader - checks both cameras, red if either is stale
+    results.append(_check_verdis_uploader(registry_backend))
 
     # Verdis inference - check results for each camera
     results.append(_check_verdis_inference(registry_backend, "verdis/gadstrup/5", "verdis-belt-inference"))
-    results.append(_check_verdis_inference(registry_backend, "verdis/gadstrup/4", "verdis-bales-inference"))
+    results.append(_check_verdis_inference(registry_backend, "verdis/gadstrup/4", "verdis-bales-inference",
+                                           cutoff_start=datetime(2026, 2, 16)))
 
     return results
 
@@ -363,42 +363,62 @@ def _check_argo_weeks() -> list[RunnerStatus]:
     
     return results
 
-def _check_verdis_uploader(registry_backend, prefix: str, name: str) -> RunnerStatus:
-    """Check verdis uploader health - last folder should be < 10 min old during active hours."""
+UPLOADER_PREFIXES = ["verdis/gadstrup/5", "verdis/gadstrup/4"]
+
+def _check_verdis_uploader(registry_backend) -> RunnerStatus:
+    """Check verdis uploader health - both cameras should have folders < 10 min old during active hours."""
     if registry_backend is None:
-        return RunnerStatus(name, ok=False, detail="no backend")
+        return RunnerStatus("verdis-uploader", ok=False, detail="no backend")
 
-    print(f"[{name}] Listing files...")
-    try:
-        files = list(tqdm(registry_backend.LIST(f"{prefix}/"), desc=f"Listing {prefix}"))
-    except Exception as e:
-        return RunnerStatus(name, ok=False, detail=str(e)[:30])
+    cam_ages: dict[str, tuple[int, str]] = {}  # prefix -> (age_min, latest_path)
+    for prefix in UPLOADER_PREFIXES:
+        cam_label = prefix.rsplit("/", 1)[-1]
+        print(f"[verdis-uploader] Listing {prefix}...")
+        try:
+            files = list(tqdm(registry_backend.LIST(f"{prefix}/"), desc=f"Listing {prefix}"))
+        except Exception as e:
+            cam_ages[cam_label] = (-1, str(e)[:20])
+            continue
 
-    folder_ts: dict[str, datetime] = {}
-    for f in tqdm(files, desc="Scanning folders"):
-        parts = f.parts
-        if len(parts) >= 4:  # verdis/gadstrup/N/YYYYMMDD_HHMMSS/...
-            folder_name = parts[3]
-            if folder_name not in folder_ts:
-                if ts := _parse_verdis_folder_ts(folder_name):
-                    folder_ts[folder_name] = ts
+        folder_ts: dict[str, datetime] = {}
+        for f in files:
+            parts = f.parts
+            if len(parts) >= 4:
+                folder_name = parts[3]
+                if folder_name not in folder_ts:
+                    if ts := _parse_verdis_folder_ts(folder_name):
+                        folder_ts[folder_name] = ts
 
-    if not folder_ts:
-        return RunnerStatus(name, ok=False, detail="no folders found")
+        if not folder_ts:
+            cam_ages[cam_label] = (-1, "no folders")
+            continue
 
-    latest_folder = max(folder_ts.keys(), key=lambda k: folder_ts[k])
-    latest_ts = folder_ts[latest_folder]
-    age_min = int((datetime.now() - latest_ts).total_seconds() // 60)
+        latest_folder = max(folder_ts.keys(), key=lambda k: folder_ts[k])
+        latest_ts = folder_ts[latest_folder]
+        age_min = int((datetime.now() - latest_ts).total_seconds() // 60)
+        cam_ages[cam_label] = (age_min, f"{prefix}/{latest_folder}")
 
-    print(f"[{name}] Latest folder: {latest_folder} ({age_min}m ago)")
+    detail_parts = []
+    worst_age = 0
+    worst_path = None
+    for cam, (age, path) in cam_ages.items():
+        if age < 0:
+            detail_parts.append(f"cam{cam}: {path}")
+            worst_age = 999999
+        else:
+            detail_parts.append(f"cam{cam}: {age}m")
+            if age > worst_age:
+                worst_age = age
+                worst_path = path
+
+    detail = " | ".join(detail_parts)
 
     if not _is_verdis_active_hours():
-        return RunnerStatus(name, ok=True, warn=True,
-                          detail=f"outside hours ({age_min}m)", path=f"{prefix}/{latest_folder}")
+        return RunnerStatus("verdis-uploader", ok=True, warn=True,
+                          detail=f"outside hours ({detail})", path=worst_path)
 
-    ok = age_min <= 10
-    return RunnerStatus(name, ok=ok, detail=f"{age_min}m ago",
-                       path=f"{prefix}/{latest_folder}")
+    ok = worst_age <= 10
+    return RunnerStatus("verdis-uploader", ok=ok, detail=detail, path=worst_path)
 
 def _parse_image_ts(filename: str) -> datetime | None:
     """Extract timestamp from image filename like 20260128_103000.png or 20260128_103000_001.png."""
@@ -407,8 +427,8 @@ def _parse_image_ts(filename: str) -> datetime | None:
         return datetime(int(d[:4]), int(d[4:6]), int(d[6:8]), int(t[:2]), int(t[2:4]), int(t[4:6]))
     return None
 
-def _check_verdis_inference(registry_backend, prefix: str, name: str) -> RunnerStatus:
-    """Check verdis inference - find oldest folder missing results (last 7 days only)."""
+def _check_verdis_inference(registry_backend, prefix: str, name: str, cutoff_start: datetime | None = None) -> RunnerStatus:
+    """Check verdis inference - find oldest folder missing results (last 7 days only, optionally after cutoff_start)."""
     if registry_backend is None:
         return RunnerStatus(name, ok=False, detail="no backend")
 
@@ -427,10 +447,9 @@ def _check_verdis_inference(registry_backend, prefix: str, name: str) -> RunnerS
             continue
         if f.suffix != ".json" or "schema" in f.name:
             continue
-        # path is <prefix>/FOLDER/STEM/hash.json
         has_result_keys.add((parts[len(prefix_parts)], parts[len(prefix_parts) + 1]))
 
-    cutoff = datetime.now() - timedelta(days=7)
+    cutoff = max(datetime.now() - timedelta(days=7), cutoff_start) if cutoff_start else datetime.now() - timedelta(days=7)
 
     print(f"[{name}] Scanning recent images...")
     folder_info: dict[str, tuple[datetime, bool, str]] = {}
