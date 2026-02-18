@@ -28,7 +28,7 @@ class DeviceStatus:
     last_path: str | None = None
     error: str | None = None
 
-IP_DEVICE_TEMP_HISTORY_MAX = 100
+IP_DEVICE_TEMP_HISTORY_MAX = 1000
 
 @dataclass
 class IPDeviceStatus:
