@@ -27,6 +27,7 @@ from charts import (
 )
 from easysort.registry import RegistryBase
 from easysort.helpers import REGISTRY_LOCAL_IP
+from api import start_api
 
 Registry = RegistryBase(base=REGISTRY_LOCAL_IP)
 DEVICES_TXT = Path(__file__).parent / "devices.txt"
@@ -144,6 +145,7 @@ def main():
     
     dash = Dashboard()
     dash.refresh(heavy=True)
+    start_api(dash)
     
     while not window_should_close():
         dash.update()
