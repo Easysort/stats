@@ -499,7 +499,7 @@ def _check_verdis_inference(registry_backend, prefix: str, name: str, cutoff_sta
     oldest_name, (oldest_ts, _, oldest_img) = oldest_pending
     age_min = int((datetime.now() - oldest_ts).total_seconds() // 60)
 
-    ok = age_min <= 30
+    ok = age_min <= 10
     return RunnerStatus(name, ok=ok,
                        detail=f"{pending_count} pending, oldest {age_min}m",
                        path=f"{prefix}/{oldest_name}", pending=pending_count)
