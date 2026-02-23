@@ -25,7 +25,7 @@ STATE_FILE = Path(__file__).parent / "alert_state.json"
 NOTIFY_URL = os.environ.get("NANOCLAW_NOTIFY_URL", "").rstrip("/") + "/notify"
 NOTIFY_SECRET = os.environ.get("NANOCLAW_NOTIFY_SECRET", "")
 
-IP_FAIL_THRESHOLD = 3       # consecutive failed polls before alerting
+IP_FAIL_THRESHOLD = 5       # consecutive failed polls before alerting
 DEVICE_OFFLINE_MINUTES = 180  # 3 hours
 
 
@@ -86,18 +86,17 @@ def check_and_notify(dash: Dashboard) -> None:
             s["consecutive_failures"] += 1
             changed = True
             if s["consecutive_failures"] >= IP_FAIL_THRESHOLD and not s["notified"]:
-                detail = f" ({dev.detail})" if dev.detail else ""
-                if _push(
-                    f"*Stats Alert* \u2014 IP device *{dev.name}* has failed "
-                    f"{s['consecutive_failures']} polls in a row{detail}."
-                ):
+                if _push(f"{dev.name} unreachable"):
                     s["notified"] = True
         else:
-            if s["consecutive_failures"] > 0 or s["notified"]:
-                print(f"[alerts] IP device {dev.name!r} recovered, resetting alert state")
+            if s["notified"]:
+                if _push(f"{dev.name} back online"):
+                    s["consecutive_failures"] = 0
+                    s["notified"] = False
+                    changed = True
+            elif s["consecutive_failures"] > 0:
+                s["consecutive_failures"] = 0
                 changed = True
-            s["consecutive_failures"] = 0
-            s["notified"] = False
 
     # ── Camera Devices ────────────────────────────────────────────────────────
     dev_states: dict = state.setdefault("devices", {})
@@ -108,18 +107,14 @@ def check_and_notify(dash: Dashboard) -> None:
         is_offline = age > DEVICE_OFFLINE_MINUTES
 
         if is_offline and not s["notified_offline"]:
-            changed = True
-            hours, mins = divmod(age, 60)
-            last_seen = f" Last seen: {dev.last_seen.isoformat()}." if dev.last_seen else ""
-            if _push(
-                f"*Stats Alert* \u2014 Camera *{dev.name}* has been offline "
-                f"for {hours}h {mins}m.{last_seen}"
-            ):
+            hours, mins = divmod(int(age), 60)
+            if _push(f"{dev.name} offline {hours}h{mins:02d}m"):
                 s["notified_offline"] = True
+                changed = True
         elif not is_offline and s["notified_offline"]:
-            print(f"[alerts] Camera {dev.name!r} back online, resetting alert state")
-            s["notified_offline"] = False
-            changed = True
+            if _push(f"{dev.name} back online"):
+                s["notified_offline"] = False
+                changed = True
 
     if changed:
         _save_state(state)
