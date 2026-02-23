@@ -64,6 +64,7 @@ class Dashboard:
         t = get_time()
         if t - self.last_heavy > HEAVY_INTERVAL:
             self.refresh(heavy=True)
+            self.last_heavy = t
             self.last_refresh = t
         elif t - self.last_refresh > REFRESH_INTERVAL:
             self.refresh()

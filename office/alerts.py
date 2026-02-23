@@ -47,13 +47,13 @@ def _save_state(state: dict) -> None:
 
 # ── Notification push ─────────────────────────────────────────────────────────
 
-def _push(text: str) -> None:
+def _push(text: str) -> bool:
     if not NOTIFY_URL or NOTIFY_URL == "/notify":
         print(f"[alerts] NANOCLAW_NOTIFY_URL not set, cannot push: {text}")
-        return
+        return False
     if not NOTIFY_SECRET:
         print(f"[alerts] NANOCLAW_NOTIFY_SECRET not set, cannot push: {text}")
-        return
+        return False
     body = json.dumps({"secret": NOTIFY_SECRET, "text": text}).encode()
     req = urllib.request.Request(
         NOTIFY_URL,
@@ -64,8 +64,10 @@ def _push(text: str) -> None:
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             print(f"[alerts] Pushed alert ({resp.status}): {text[:80]}")
+            return True
     except Exception as e:
         print(f"[alerts] Failed to push alert: {e} — {text[:80]}")
+        return False
 
 
 # ── Alert logic ───────────────────────────────────────────────────────────────
@@ -84,12 +86,12 @@ def check_and_notify(dash: Dashboard) -> None:
             s["consecutive_failures"] += 1
             changed = True
             if s["consecutive_failures"] >= IP_FAIL_THRESHOLD and not s["notified"]:
-                s["notified"] = True
                 detail = f" ({dev.detail})" if dev.detail else ""
-                _push(
+                if _push(
                     f"*Stats Alert* \u2014 IP device *{dev.name}* has failed "
                     f"{s['consecutive_failures']} polls in a row{detail}."
-                )
+                ):
+                    s["notified"] = True
         else:
             if s["consecutive_failures"] > 0 or s["notified"]:
                 print(f"[alerts] IP device {dev.name!r} recovered, resetting alert state")
@@ -106,14 +108,14 @@ def check_and_notify(dash: Dashboard) -> None:
         is_offline = age > DEVICE_OFFLINE_MINUTES
 
         if is_offline and not s["notified_offline"]:
-            s["notified_offline"] = True
             changed = True
             hours, mins = divmod(age, 60)
             last_seen = f" Last seen: {dev.last_seen.isoformat()}." if dev.last_seen else ""
-            _push(
+            if _push(
                 f"*Stats Alert* \u2014 Camera *{dev.name}* has been offline "
                 f"for {hours}h {mins}m.{last_seen}"
-            )
+            ):
+                s["notified_offline"] = True
         elif not is_offline and s["notified_offline"]:
             print(f"[alerts] Camera {dev.name!r} back online, resetting alert state")
             s["notified_offline"] = False
