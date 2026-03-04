@@ -267,7 +267,7 @@ def get_runner_health(registry_backend=None) -> list[RunnerStatus]:
 
     # Verdis inference - check results for each camera
     results.append(_check_verdis_inference(registry_backend, "verdis/gadstrup/5", "verdis-belt-inference"))
-    results.append(_check_verdis_inference(registry_backend, "verdis/gadstrup/4", "verdis-bales-inference",
+    results.append(_check_verdis_inference(registry_backend, "verdis/gadstrup/9", "verdis-bales-inference",
                                            cutoff_start=datetime(2026, 2, 16)))
 
     return results
@@ -363,7 +363,7 @@ def _check_argo_weeks() -> list[RunnerStatus]:
     
     return results
 
-UPLOADER_PREFIXES = ["verdis/gadstrup/5", "verdis/gadstrup/4"]
+UPLOADER_PREFIXES = ["verdis/gadstrup/5", "verdis/gadstrup/9"]
 
 def _check_verdis_uploader(registry_backend) -> RunnerStatus:
     """Check verdis uploader health - both cameras should have folders < 10 min old during active hours."""
