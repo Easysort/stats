@@ -27,6 +27,8 @@ from charts import (
 )
 from easysort.registry import RegistryBase
 from easysort.helpers import REGISTRY_LOCAL_IP
+from api import start_api
+from alerts import check_and_notify
 
 Registry = RegistryBase(base=REGISTRY_LOCAL_IP)
 DEVICES_TXT = Path(__file__).parent / "devices.txt"
@@ -53,11 +55,16 @@ class Dashboard:
         self.runners = get_runner_health(Registry.backend)
         self.tracking = get_tracking_health(heavy)
         self.mkv_storage, self.supabase_storage = get_all_storage(MKV_VOLUME, save=heavy)
-        
+        try:
+            check_and_notify(self)
+        except Exception as e:
+            print(f"[alerts] Error during alert check: {e}")
+
     def update(self):
         t = get_time()
         if t - self.last_heavy > HEAVY_INTERVAL:
             self.refresh(heavy=True)
+            self.last_heavy = t
             self.last_refresh = t
         elif t - self.last_refresh > REFRESH_INTERVAL:
             self.refresh()
@@ -144,6 +151,7 @@ def main():
     
     dash = Dashboard()
     dash.refresh(heavy=True)
+    start_api(dash)
     
     while not window_should_close():
         dash.update()
