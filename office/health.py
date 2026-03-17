@@ -1,5 +1,6 @@
 """Device and runner health checks."""
 from __future__ import annotations
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -150,91 +151,98 @@ def _history_to_tuples(entries: list[dict]) -> list[tuple[datetime, float | None
     return result
 
 
+def _fetch_one_ip_device(name: str, ip: str) -> tuple[str, bool, str, bool, bool, float | None]:
+    """Fetch /health for one device. Returns (name, ok, detail, over_temp, tmux_running, temp_val)."""
+    url = f"http://{ip}:5000/health"
+    temp_val: float | None = None
+    tmux_running = False
+    over_temp = False
+    detail = ""
+    ok = False
+    try:
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "Mozilla/5.0 (compatible; Easysort-Stats/1.0)"}
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=IP_DEVICE_HEALTH_TIMEOUT) as resp:
+                data = json.loads(resp.read().decode())
+        except urllib.error.HTTPError as e:
+            if e.code == 503 and e.fp:
+                try:
+                    data = json.loads(e.read().decode())
+                except Exception:
+                    data = None
+            if data is None:
+                return (name, False, f"HTTP {e.code}", over_temp, tmux_running, temp_val)
+        if data is None:
+            return (name, False, "no data", over_temp, tmux_running, temp_val)
+        temps = data.get("temps") if isinstance(data.get("temps"), dict) else {}
+        checks = data.get("checks") or {}
+        if "temps" in data or "checks" in data:
+            temp_val = (temps.get("cpu_c") if temps.get("cpu_c") is not None else temps.get("battery_c"))
+            if temp_val is None and isinstance(data.get("battery"), dict):
+                bat = data.get("battery") or {}
+                temp_val = bat.get("temp_c") or bat.get("temperature")
+            if temp_val is None:
+                temp_val = data.get("battery_c") or data.get("temperature_celsius")
+            if temp_val is not None:
+                temp_val = float(temp_val)
+            over_temp = temp_val is not None and temp_val > IP_DEVICE_TEMP_LIMIT_CELSIUS
+            temps_ok = checks.get("temps_ok", True)
+            if "tmux_running" in checks:
+                tmux_running = bool(checks["tmux_running"])
+            else:
+                tmux_running = bool(data.get("healthy", False))
+            if temp_val is not None:
+                temp_src = "batt" if temps.get("cpu_c") is None else ""
+                temp_str = f"{temp_val:.1f}°C" + (f" {temp_src}" if temp_src else "")
+            else:
+                temp_str = "no temp"
+            tmux_str = "tmux ok" if tmux_running else "tmux no"
+            detail = f"{temp_str} · {tmux_str}"
+            ok = not over_temp and temps_ok and tmux_running
+        else:
+            camera = data.get("camera", "")
+            status = data.get("status", "")
+            temp = data.get("temperature_celsius")
+            if temp is None:
+                detail = "no temp"
+            else:
+                temp_val = float(temp)
+                detail = f"{temp_val:.1f}°C"
+                over_temp = temp_val > IP_DEVICE_TEMP_LIMIT_CELSIUS
+            ok = (camera == "ok" and status == "ok" and not over_temp)
+        return (name, ok, detail, over_temp, tmux_running, temp_val)
+    except Exception as e:
+        return (name, False, str(e)[:40], False, False, None)
+
+
 def get_ip_device_health(devices_txt_path: Path) -> list[IPDeviceStatus]:
-    """Read devices.txt (lines: 'name ip'), call http://{ip}:5000/health, return status. Temp > 85°C => over_temp.
-    Persists last 100 (ts, temp_c, tmux_running) per device for the temp-over-time chart."""
+    """Read devices.txt (lines: 'name ip'), call http://{ip}:5000/health in parallel, return status.
+    Temp > 85°C => over_temp. Persists last 100 (ts, temp_c, tmux_running) per device for the temp-over-time chart."""
     results: list[IPDeviceStatus] = []
     if not devices_txt_path.exists():
         return results
     history_path = devices_txt_path.parent / "ip_device_temp_history.json"
     all_history = _load_ip_device_temp_history(history_path)
-    lines = devices_txt_path.read_text().strip().splitlines()
-    now = datetime.now()
-    for line in lines:
+    # Parse devices.txt into (name, ip) list
+    entries: list[tuple[str, str]] = []
+    for line in devices_txt_path.read_text().strip().splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
         parts = line.split(None, 1)
         if len(parts) != 2:
             continue
-        name, ip = parts[0], parts[1].strip()
-        url = f"http://{ip}:5000/health"
-        data = None
-        temp_val: float | None = None
-        tmux_running = False
-        over_temp = False
-        detail = ""
-        ok = False
-        try:
-            req = urllib.request.Request(
-                url, headers={"User-Agent": "Mozilla/5.0 (compatible; Easysort-Stats/1.0)"}
-            )
-            try:
-                with urllib.request.urlopen(req, timeout=IP_DEVICE_HEALTH_TIMEOUT) as resp:
-                    data = json.loads(resp.read().decode())
-            except urllib.error.HTTPError as e:
-                if e.code == 503 and e.fp:
-                    try:
-                        data = json.loads(e.read().decode())
-                    except Exception:
-                        data = None
-                if data is None:
-                    detail = f"HTTP {e.code}"
-                    results.append(_ip_device_result(name, ok, detail, over_temp, tmux_running, all_history, now))
-                    continue
-            if data is None:
-                results.append(_ip_device_result(name, ok, detail or "no data", over_temp, tmux_running, all_history, now))
-                continue
-            temps = data.get("temps") if isinstance(data.get("temps"), dict) else {}
-            checks = data.get("checks") or {}
-            if "temps" in data or "checks" in data:
-                temp_val = (temps.get("cpu_c") if temps.get("cpu_c") is not None else temps.get("battery_c"))
-                if temp_val is None and isinstance(data.get("battery"), dict):
-                    bat = data.get("battery") or {}
-                    temp_val = bat.get("temp_c") or bat.get("temperature")
-                if temp_val is None:
-                    temp_val = data.get("battery_c") or data.get("temperature_celsius")
-                if temp_val is not None:
-                    temp_val = float(temp_val)
-                over_temp = temp_val is not None and temp_val > IP_DEVICE_TEMP_LIMIT_CELSIUS
-                temps_ok = checks.get("temps_ok", True)
-                if "tmux_running" in checks:
-                    tmux_running = bool(checks["tmux_running"])
-                else:
-                    tmux_running = bool(data.get("healthy", False))
-                if temp_val is not None:
-                    temp_src = "batt" if temps.get("cpu_c") is None else ""
-                    temp_str = f"{temp_val:.1f}°C" + (f" {temp_src}" if temp_src else "")
-                else:
-                    temp_str = "no temp"
-                tmux_str = "tmux ok" if tmux_running else "tmux no"
-                detail = f"{temp_str} · {tmux_str}"
-                ok = not over_temp and temps_ok and tmux_running
-            else:
-                camera = data.get("camera", "")
-                status = data.get("status", "")
-                temp = data.get("temperature_celsius")
-                if temp is None:
-                    detail = "no temp"
-                else:
-                    temp_val = float(temp)
-                    detail = f"{temp_val:.1f}°C"
-                    over_temp = temp_val > IP_DEVICE_TEMP_LIMIT_CELSIUS
-                    ok = (camera == "ok" and status == "ok" and not over_temp)
-            results.append(_ip_device_result(name, ok, detail, over_temp, tmux_running, all_history, now, temp_val))
-        except Exception as e:
-            detail = str(e)[:40]
-            results.append(_ip_device_result(name, False, detail, False, False, all_history, now))
+        entries.append((parts[0], parts[1].strip()))
+    if not entries:
+        return results
+    now = datetime.now()
+    # Fetch all devices in parallel (order preserved by map)
+    with ThreadPoolExecutor(max_workers=min(32, len(entries) * 2)) as executor:
+        fetch_results = list(executor.map(lambda e: _fetch_one_ip_device(e[0], e[1]), entries))
+    for name, ok, detail, over_temp, tmux_running, temp_val in fetch_results:
+        results.append(_ip_device_result(name, ok, detail, over_temp, tmux_running, all_history, now, temp_val))
     _save_ip_device_temp_history(history_path, all_history)
     return results
 
