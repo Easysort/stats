@@ -83,25 +83,24 @@ class Dashboard:
         draw_text(f"refresh {next_soft}s | sync {next_heavy // 60}m{next_heavy % 60:02d}s", w - PAD - 220, y + 10, 14, Color(80, 80, 90, 255))
         y += 56
         
-        # Storage
-        if self.mkv_storage and self.supabase_storage:
-            cw = (w - PAD * 3) // 2
+        # Storage (local only; cloud overview removed)
+        if self.mkv_storage:
+            cw = w - PAD * 2
             draw_storage_summary(PAD, y, cw, "Local", self.mkv_storage.current.used_gb, self.mkv_storage.current.total_gb)
-            draw_storage_summary(PAD * 2 + cw, y, cw, "Cloud", self.supabase_storage.current.used_gb, self.supabase_storage.current.total_gb)
             y += 72
-            
             ch = 140
-            qw = (w - PAD * 5) // 4
+            qw = (w - PAD * 3) // 2
             draw_line_chart(PAD, y, qw, ch, self.mkv_storage.week_data(), "Local 7d", Color(100, 180, 255, 255), 7)
-            draw_line_chart(PAD * 2 + qw, y, qw, ch, self.supabase_storage.week_data(), "Cloud 7d", Color(180, 130, 255, 255), 7)
-            draw_line_chart(PAD * 3 + qw * 2, y, qw, ch, self.mkv_storage.month_data(2), "Local 60d", Color(100, 180, 255, 255), 60)
-            draw_line_chart(PAD * 4 + qw * 3, y, qw, ch, self.supabase_storage.month_data(2), "Cloud 60d", Color(180, 130, 255, 255), 60)
+            draw_line_chart(PAD * 2 + qw, y, qw, ch, self.mkv_storage.month_data(2), "Local 60d", Color(100, 180, 255, 255), 60)
             y += ch + PAD
         
-        # Devices
+        # Devices (denser grid for many devices)
         draw_text("DEVICES", PAD, y, 16, Color(90, 90, 100, 255))
+        if self.devices:
+            down = sum(1 for d in self.devices if not d.ok)
+            draw_text(f"{len(self.devices)} devices" + (f" · {down} down" if down else " · all ok"), PAD + 100, y, 13, Color(90, 90, 100, 255))
         y += 28
-        cols = max(1, (w - PAD) // 280)
+        cols = max(1, (w - PAD) // 200)
         card_w = (w - PAD * (cols + 1)) // cols
         device_card_h = 76
         for i, dev in enumerate(self.devices):
@@ -133,6 +132,9 @@ class Dashboard:
 
         # Runners
         draw_text("RUNNERS", PAD, y, 16, Color(90, 90, 100, 255))
+        if self.runners:
+            down = sum(1 for r in self.runners if not r.ok)
+            draw_text(f"{len(self.runners)} runners" + (f" · {down} down" if down else " · all ok"), PAD + 90, y, 13, Color(90, 90, 100, 255))
         y += 28
         runner_card_h = 76
         for i, r in enumerate(self.runners):
@@ -141,6 +143,9 @@ class Dashboard:
         
         # Tracking Service
         draw_text("TRACKING SERVICE", PAD, y, 16, Color(90, 90, 100, 255))
+        if self.tracking:
+            down = sum(1 for t in self.tracking if not t.ok)
+            draw_text(f"{len(self.tracking)} checks" + (f" · {down} down" if down else " · ok"), PAD + 140, y, 13, Color(90, 90, 100, 255))
         y += 28
         for i, t in enumerate(self.tracking):
             draw_status_card(PAD + (i % cols) * (card_w + PAD), y + (i // cols) * runner_card_h, card_w, t.name, t.ok, t.detail, t.warn, t.path)
