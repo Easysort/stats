@@ -1,13 +1,12 @@
 # WhatsApp Alerts
 
-After every `Dashboard.refresh()` cycle, `alerts.py` checks the in-memory
-dashboard data and pushes a notification to NanoClaw (the WhatsApp assistant)
+After every hosted dashboard refresh cycle, `alerts.py` checks the latest
+snapshot data and pushes a notification to NanoClaw (the WhatsApp assistant)
 when alert conditions are met. NanoClaw forwards the message to the main
 WhatsApp group.
 
-No separate polling — alerts fire on the same schedule as the dashboard's own
-data refresh (every 3 minutes for a light update, every 30 minutes for a heavy
-sync).
+No separate polling — alerts fire on the same schedule as the hosted
+dashboard's own refresh cycle.
 
 ## Alert rules
 
@@ -59,25 +58,25 @@ The secret must match `NOTIFY_SECRET` in the NanoClaw `.env` file.
 
 ### 2. Run script
 
-Pass `--env-file .env` to `uv run` so the environment variables are loaded:
+Pass `--env-file .env` to `uv run` if you want the environment variables loaded
+explicitly:
 
 ```bash
 cd /home/easysort/Easysort
-DISPLAY=:0 uv run --env-file .env stats/office/main.py
+uv run --env-file .env python stats/office/main.py
 ```
 
-Without `--env-file`, `uv run` does not automatically pick up `.env` and the
-alerts will not be pushed (a warning is printed on each refresh instead).
+Without the NanoClaw env vars, alerts are not pushed and a warning is printed
+instead.
 
 ## How it works
 
-```
-Dashboard.refresh()
-  └─ alerts.check_and_notify(self)
-       └─ checks dash.ip_devices and dash.devices against thresholds
-       └─ loads/saves alert_state.json for deduplication
-       └─ POST http://<nanoclaw>:8151/notify  {"secret": "...", "text": "..."}
-            └─ NanoClaw validates secret, sends to main WhatsApp group
+```text
+OfficeMonitorService._refresh_once()
+  -> alerts.check_and_notify(snapshot)
+  -> checks snapshot.ip_devices and snapshot.devices against thresholds
+  -> loads/saves alert_state.json for deduplication
+  -> POST http://<nanoclaw>:8151/notify  {"secret": "...", "text": "..."}
 ```
 
 If `NANOCLAW_NOTIFY_URL` or `NANOCLAW_NOTIFY_SECRET` are not set, the check

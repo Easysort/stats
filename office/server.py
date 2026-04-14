@@ -6,13 +6,17 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from stats.office.models import SECTION_NAMES, SectionName
 from stats.office.service import OfficeMonitorService
 
 WEB_DIR = Path(__file__).parent / "web"
+NO_CACHE_HEADERS = {
+  "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+  "Pragma": "no-cache",
+}
 
 
 def create_app(service: OfficeMonitorService | None = None) -> FastAPI:
@@ -46,31 +50,37 @@ def create_app(service: OfficeMonitorService | None = None) -> FastAPI:
     app.mount("/static", StaticFiles(directory=WEB_DIR), name="office-static")
 
   @app.get("/health")
-  def health() -> dict:
+  def health() -> JSONResponse:
     snapshot = office_service.get_snapshot()
-    return {
-      "status": "ok",
-      "service": "office-dashboard",
-      "snapshot_status": snapshot.status,
-      "generated_at": snapshot.to_dict(include_history=False)["generated_at"],
-    }
+    return JSONResponse(
+      {
+        "status": "ok",
+        "service": "office-dashboard",
+        "snapshot_status": snapshot.status,
+        "generated_at": snapshot.to_dict(include_history=False)["generated_at"],
+      },
+      headers=NO_CACHE_HEADERS,
+    )
 
   @app.get("/api/status")
-  def api_status() -> dict:
-    return office_service.get_snapshot_dict()
+  def api_status() -> JSONResponse:
+    return JSONResponse(office_service.get_snapshot_dict(), headers=NO_CACHE_HEADERS)
 
   @app.get("/api/{section_name}")
-  def api_section(section_name: str) -> dict:
+  def api_section(section_name: str) -> JSONResponse:
     if section_name not in SECTION_NAMES:
       raise HTTPException(status_code=404, detail="Unknown section. Try /api/status")
-    return office_service.get_section_response(section_name=section_name)  # type: ignore[arg-type]
+    return JSONResponse(
+      office_service.get_section_response(section_name=section_name),  # type: ignore[arg-type]
+      headers=NO_CACHE_HEADERS,
+    )
 
   @app.get("/")
   def dashboard() -> FileResponse:
-    return FileResponse(WEB_DIR / "index.html")
+    return FileResponse(WEB_DIR / "index.html", headers=NO_CACHE_HEADERS)
 
   @app.get("/dashboard")
   def dashboard_alias() -> FileResponse:
-    return FileResponse(WEB_DIR / "index.html")
+    return FileResponse(WEB_DIR / "index.html", headers=NO_CACHE_HEADERS)
 
   return app

@@ -40,7 +40,7 @@ input {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
-  padding: 1.25rem 1.5rem;
+  padding: 1rem 1.25rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(13, 17, 23, 0.92);
   backdrop-filter: blur(14px);
@@ -98,27 +98,21 @@ input {
 }
 
 .content {
-  padding: 1.25rem 1.5rem 2rem;
+  padding: 1rem 1.25rem 2rem;
 }
 
-.summary-grid,
-.section-grid {
+.summary-grid {
   display: grid;
   gap: 1rem;
   margin-bottom: 1rem;
 }
 
 .summary-grid {
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-}
-
-.section-grid {
-  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
 }
 
 .panel,
 .summary-card,
-.section-card,
 .storage-card {
   background: rgba(22, 27, 34, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -126,13 +120,11 @@ input {
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.24);
 }
 
-.summary-card,
-.section-card {
+.summary-card {
   padding: 1rem;
 }
 
 .summary-card h2,
-.section-card h2,
 .panel h2,
 .storage-card h3 {
   margin: 0;
@@ -140,16 +132,15 @@ input {
 }
 
 .summary-value {
-  margin-top: 0.5rem;
-  font-size: 1.8rem;
+  margin-top: 0.35rem;
+  font-size: 1.4rem;
   font-weight: 700;
 }
 
-.summary-subtitle,
-.section-detail {
-  margin-top: 0.35rem;
+.summary-subtitle {
+  margin-top: 0.2rem;
   color: var(--muted);
-  font-size: 0.92rem;
+  font-size: 0.84rem;
 }
 
 .panel {
@@ -162,7 +153,7 @@ input {
   justify-content: space-between;
   gap: 1rem;
   align-items: flex-start;
-  padding: 1rem 1rem 0.75rem;
+  padding: 0.9rem 1rem 0.65rem;
 }
 
 .panel-header-copy {
@@ -262,6 +253,10 @@ tbody tr:hover {
   word-break: break-all;
 }
 
+.compact {
+  white-space: nowrap;
+}
+
 .sparkline {
   width: 8rem;
   height: 2.25rem;
@@ -310,6 +305,10 @@ tbody tr:hover {
 
 .empty-state {
   padding: 1rem;
+}
+
+.empty-panel {
+  padding: 1rem 1rem 1.15rem;
 }
 
 @media (max-width: 840px) {

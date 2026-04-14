@@ -1,18 +1,23 @@
 # Stats
 
-Raylib-based monitoring dashboard for production infrastructure, with a JSON
-API and WhatsApp alert integration.
+LAN-hosted monitoring dashboard for production infrastructure, with a browser
+UI, JSON API, persisted last-known state, and optional WhatsApp alert
+integration.
 
 ## Running
 
 ```bash
 cd /home/easysort/Easysort
-DISPLAY=:0 uv run --env-file .env stats/office/main.py
+uv run --env-file .env python stats/office/main.py
 ```
 
-`--env-file .env` is required to load the alert notification credentials.
-Without it, the dashboard and API still work but WhatsApp alerts will not be
-pushed.
+The dashboard binds to `0.0.0.0:8150` by default.
+
+- On the device: `http://localhost:8150`
+- From another machine on the same network: `http://<device-ip>:8150`
+
+`--env-file .env` is optional, but useful when you want registry, Supabase, or
+alert settings loaded explicitly.
 
 ## Docs
 

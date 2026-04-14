@@ -4,7 +4,6 @@ from __future__ import annotations
 import copy
 import os
 import threading
-import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
@@ -25,8 +24,8 @@ from stats.office.models import OfficeSnapshot, RefreshState, SectionName, Secti
 from stats.office.state_store import JsonStateStore
 from stats.office.storage import StorageHistory, get_all_storage
 
-REFRESH_INTERVAL = int(os.environ.get("STATS_REFRESH_INTERVAL", "180"))
 HEAVY_INTERVAL = int(os.environ.get("STATS_HEAVY_INTERVAL", "1800"))
+REFRESH_INTERVAL = HEAVY_INTERVAL
 STATS_STALE_MULTIPLIER = float(os.environ.get("STATS_STALE_MULTIPLIER", "2"))
 MKV_VOLUME = os.environ.get("MKV_VOLUME", "/media/easysort/lenovo")
 DEVICES_TXT = Path(__file__).parent / "devices.txt"
@@ -91,8 +90,8 @@ class OfficeMonitorService:
     if self._thread and self._thread.is_alive():
       self._thread.join(timeout=5)
 
-  def refresh_now(self, *, heavy: bool = False) -> OfficeSnapshot:
-    return self._refresh_once(heavy=heavy)
+  def refresh_now(self, *, heavy: bool = True) -> OfficeSnapshot:
+    return self._refresh_once(heavy=True)
 
   def get_snapshot(self) -> OfficeSnapshot:
     with self._lock:
@@ -110,10 +109,9 @@ class OfficeMonitorService:
     while not self._stop_event.is_set():
       snapshot = self.get_snapshot()
       now = datetime.now()
-      should_heavy = first_pass or self._is_due(snapshot.refresh.last_heavy_at, self.heavy_interval, now)
-      should_refresh = should_heavy or first_pass or self._is_due(snapshot.refresh.last_refresh_at, self.refresh_interval, now)
+      should_refresh = first_pass or self._is_due(snapshot.refresh.last_heavy_at, self.heavy_interval, now)
       if should_refresh:
-        self._refresh_once(heavy=should_heavy)
+        self._refresh_once(heavy=True)
         first_pass = False
         continue
       self._stop_event.wait(timeout=1)

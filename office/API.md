@@ -1,14 +1,13 @@
 # Stats JSON API
 
-A lightweight HTTP API that runs alongside the raylib dashboard and serves the same monitoring data as JSON.
+A lightweight HTTP API that runs alongside the hosted browser dashboard and serves the monitoring data as JSON.
 
 ## Quick start
 
 The API starts automatically when you run `main.py`. No extra setup needed.
 
-```
+```bash
 python main.py
-# [api] JSON API running on http://0.0.0.0:8150/api/status
 ```
 
 To change the port, set `STATS_API_PORT`:
@@ -38,12 +37,12 @@ Returns the full dashboard state in a single response.
 
 ### `GET /api/devices`
 
-Argo device health. Each entry:
+Device health from the registry. Each entry:
 
 | Field | Type | Description |
 |---|---|---|
 | `name` | string | Device name |
-| `ok` | bool | Healthy if last upload was within threshold |
+| `ok` | bool | Healthy if last upload was within the 4 hour threshold |
 | `age_minutes` | int or null | Minutes since last media file |
 | `last_seen` | string or null | ISO timestamp of last file |
 | `last_path` | string or null | Registry path of last file |
@@ -103,6 +102,7 @@ Storage metrics for local and cloud volumes:
 
 ## Notes
 
-- Data refreshes on the same schedule as the dashboard (light refresh every 3 min, heavy sync every 30 min). The API always returns the latest cached state.
-- The server runs in a daemon thread and shuts down automatically when the main process exits.
+- The API always returns the latest cached state from the hosted dashboard service.
+- The service performs a single scheduled refresh cycle using the heavy sync path.
+- API responses are sent with `Cache-Control: no-store` so browser clients can poll for live updates.
 - No authentication — intended for local / private network use.

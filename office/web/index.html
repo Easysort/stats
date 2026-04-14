@@ -10,7 +10,7 @@
   <div class="app-shell">
     <header class="app-header">
       <div>
-        <p class="eyebrow">LAN-hosted monitoring</p>
+        <p class="eyebrow">Live office overview</p>
         <h1>Easysort Office Dashboard</h1>
         <p class="subtle" id="status-line">Loading latest snapshot...</p>
       </div>
@@ -20,15 +20,14 @@
           <input id="search-input" type="search" placeholder="device, runner, path...">
         </label>
         <label class="checkbox">
-          <input id="issues-only" type="checkbox">
-          <span>Only issues and stale data</span>
+          <input id="issues-only" type="checkbox" checked>
+          <span>Only issues</span>
         </label>
       </div>
     </header>
 
     <main class="content">
       <section class="summary-grid" id="summary-grid"></section>
-      <section class="section-grid" id="section-grid"></section>
       <section id="tables-root"></section>
     </main>
   </div>

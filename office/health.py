@@ -69,8 +69,8 @@ def _is_verdis_active_hours() -> bool:
     now = datetime.now()
     return now.weekday() < 5 and 7 <= now.hour < 19
 
-def get_device_health(registry_backend, max_age_minutes: int = 60) -> list[DeviceStatus]:
-    """Get health status for all Argo devices using Registry backend."""
+def get_device_health(registry_backend, max_age_minutes: int = 240) -> list[DeviceStatus]:
+    """Get health status for devices using Registry backend."""
     print("[device-health] Listing argo files...")
     try:
         files = list(tqdm(registry_backend.LIST("argo/"), desc="Listing argo files"))
