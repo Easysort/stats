@@ -311,6 +311,41 @@ tbody tr:hover {
   padding: 1rem 1rem 1.15rem;
 }
 
+.compact-strip {
+  padding: 0 1rem 1rem;
+}
+
+.compact-strip-title {
+  margin-bottom: 0.5rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.compact-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.compact-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+.compact-chip-muted {
+  color: var(--muted);
+  background: rgba(139, 148, 158, 0.08);
+}
+
 @media (max-width: 840px) {
   .app-header {
     flex-direction: column;

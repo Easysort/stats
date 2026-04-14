@@ -1,14 +1,6 @@
 const POLL_INTERVAL_MS = 5000;
 const STATUS_INTERVAL_MS = 1000;
 
-const sectionLabels = {
-  devices: "Devices",
-  ip_devices: "IP devices",
-  runners: "Runners",
-  tracking: "Tracking",
-  storage: "Storage",
-};
-
 const searchInput = document.querySelector("#search-input");
 const issuesOnlyInput = document.querySelector("#issues-only");
 const statusLine = document.querySelector("#status-line");
@@ -79,13 +71,6 @@ function formatCountdown(value) {
   return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
 }
 
-function formatAgeMinutes(minutes) {
-  if (minutes === null || minutes === undefined) {
-    return "-";
-  }
-  return formatRelativeMinutes(minutes);
-}
-
 function statusBadge(status, label = status) {
   return `<span class="status-badge status-${escapeHtml(status)}">${escapeHtml(label)}</span>`;
 }
@@ -94,15 +79,18 @@ function pill(label, className = "muted-pill") {
   return `<span class="pill ${escapeHtml(className)}">${escapeHtml(label)}</span>`;
 }
 
-function rowMatches(text, isIssue) {
+function matchesSearch(text) {
   const query = searchInput.value.trim().toLowerCase();
-  if (issuesOnlyInput.checked && !isIssue) {
-    return false;
-  }
   if (!query) {
     return true;
   }
   return text.toLowerCase().includes(query);
+}
+
+function latestTemp(row) {
+  const history = row.temp_history || [];
+  const sample = history[history.length - 1];
+  return sample?.temp_c;
 }
 
 function rowStatus(row, sectionKey) {
@@ -129,10 +117,13 @@ function storageVolumeStatus(volume) {
   return "ok";
 }
 
-function latestTemp(row) {
-  const history = row.temp_history || [];
-  const sample = history[history.length - 1];
-  return sample?.temp_c;
+function splitRows(rows, isIssue, textForSearch) {
+  const filtered = rows.filter((row) => matchesSearch(textForSearch(row)));
+  return {
+    all: filtered,
+    issues: filtered.filter((row) => isIssue(row)),
+    healthy: filtered.filter((row) => !isIssue(row)),
+  };
 }
 
 function summaryCards(snapshot) {
@@ -148,14 +139,14 @@ function summaryCards(snapshot) {
     {
       title: "Devices",
       value: `${summary.devices_down ?? 0}/${summary.devices_total ?? 0}`,
-      subtitle: "down",
+      subtitle: "need attention",
       badge: pill(`next ${formatCountdown(refresh.next_heavy_at)}`),
     },
     {
       title: "IP devices",
       value: `${summary.ip_devices_down ?? 0}/${summary.ip_devices_total ?? 0}`,
-      subtitle: "down",
-      badge: pill("live poll 5s"),
+      subtitle: "need attention",
+      badge: pill("polling every 5s"),
     },
     {
       title: "Runners",
@@ -166,7 +157,7 @@ function summaryCards(snapshot) {
     {
       title: "Storage",
       value: `${Math.round(summary.max_storage_percent ?? 0)}%`,
-      subtitle: "max used",
+      subtitle: "highest usage",
       badge: pill(`${summary.stale_sections ?? 0} stale sections`),
     },
   ];
@@ -185,7 +176,7 @@ function renderSummary(snapshot) {
     .join("");
 }
 
-function sectionHeadline(meta, subtitle) {
+function sectionHeadline(meta, title, copy) {
   const badges = [
     statusBadge(meta.status || "stale"),
     pill(`updated ${formatRelativeMinutes(meta.data_age_minutes)}`),
@@ -196,61 +187,111 @@ function sectionHeadline(meta, subtitle) {
   return `
     <div class="panel-header">
       <div class="panel-header-copy">
-        <h2>${escapeHtml(subtitle.title)}</h2>
-        <div class="meta-copy">${escapeHtml(subtitle.copy)}</div>
+        <h2>${escapeHtml(title)}</h2>
+        <div class="meta-copy">${escapeHtml(copy)}</div>
       </div>
       <div class="meta-row">${badges.join("")}</div>
     </div>
   `;
 }
 
+function renderCompactList(title, items) {
+  if (!items.length) {
+    return "";
+  }
+  const visible = items.slice(0, 18);
+  const hiddenCount = items.length - visible.length;
+  return `
+    <div class="compact-strip">
+      <div class="compact-strip-title">${escapeHtml(title)} (${items.length})</div>
+      <div class="compact-list">
+        ${visible.map((item) => `<span class="compact-chip">${escapeHtml(item)}</span>`).join("")}
+        ${hiddenCount > 0 ? `<span class="compact-chip compact-chip-muted">+${hiddenCount} more</span>` : ""}
+      </div>
+    </div>
+  `;
+}
+
+function renderFullTable(columns, rowsHtml) {
+  return `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join("")}</tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>
+  `;
+}
+
 function renderDevices(snapshot) {
   const meta = snapshot.meta.devices || {};
-  const rows = (snapshot.devices || [])
-    .filter((row) => rowMatches(`${row.name} ${row.last_path || ""} ${row.error || ""}`, !row.ok))
+  const groups = splitRows(
+    snapshot.devices || [],
+    (row) => !row.ok,
+    (row) => `${row.name} ${row.last_path || ""} ${row.error || ""}`,
+  );
+
+  if (!groups.all.length) {
+    return "";
+  }
+
+  const issueRows = groups.issues
     .map((row) => `
       <tr>
         <td>${escapeHtml(row.name)}</td>
-        <td>${statusBadge(rowStatus(row, "devices"))}</td>
-        <td class="compact">${escapeHtml(formatAgeMinutes(row.age_minutes))}</td>
+        <td>${statusBadge("error")}</td>
+        <td class="compact">${escapeHtml(formatRelativeMinutes(row.age_minutes))}</td>
         <td class="compact">${escapeHtml(formatTimestamp(row.last_seen))}</td>
         <td>${escapeHtml(row.error || "-")}</td>
       </tr>
     `)
     .join("");
 
-  if (!rows) {
-    return "";
+  const healthyItems = groups.healthy.map((row) => `${row.name} · ${formatRelativeMinutes(row.age_minutes)}`);
+  let content = "";
+  if (issuesOnlyInput.checked) {
+    if (issueRows) {
+      content += renderFullTable(["Name", "Status", "Age", "Last seen", "Note"], issueRows);
+    }
+    content += renderCompactList("Healthy", healthyItems);
+  } else {
+    const allRows = groups.all
+      .map((row) => `
+        <tr>
+          <td>${escapeHtml(row.name)}</td>
+          <td>${statusBadge(row.ok ? "ok" : "error")}</td>
+          <td class="compact">${escapeHtml(formatRelativeMinutes(row.age_minutes))}</td>
+          <td class="compact">${escapeHtml(formatTimestamp(row.last_seen))}</td>
+          <td>${escapeHtml(row.error || "-")}</td>
+        </tr>
+      `)
+      .join("");
+    content = renderFullTable(["Name", "Status", "Age", "Last seen", "Note"], allRows);
   }
 
   return `
     <section class="panel">
-      ${sectionHeadline(meta, {
-        title: "Devices",
-        copy: "Registry-based device health. Healthy means last upload is within 4 hours.",
-      })}
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Status</th>
-              <th>Age</th>
-              <th>Last seen</th>
-              <th>Note</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
+      ${sectionHeadline(meta, "Devices", "Registry-based device health. Healthy means last upload is within 4 hours.")}
+      ${content}
     </section>
   `;
 }
 
 function renderIpDevices(snapshot) {
   const meta = snapshot.meta.ip_devices || {};
-  const rows = (snapshot.ip_devices || [])
-    .filter((row) => rowMatches(`${row.name} ${row.detail || ""}`, !row.ok || row.over_temp))
+  const groups = splitRows(
+    snapshot.ip_devices || [],
+    (row) => !row.ok || row.over_temp,
+    (row) => `${row.name} ${row.detail || ""}`,
+  );
+
+  if (!groups.all.length) {
+    return "";
+  }
+
+  const issueRows = groups.issues
     .map((row) => {
       const temp = latestTemp(row);
       return `
@@ -264,36 +305,55 @@ function renderIpDevices(snapshot) {
     })
     .join("");
 
-  if (!rows) {
-    return "";
+  const healthyItems = groups.healthy.map((row) => {
+    const temp = latestTemp(row);
+    const tempText = temp === undefined ? "no temp" : `${temp.toFixed(1)} C`;
+    return `${row.name} · ${tempText}`;
+  });
+
+  let content = "";
+  if (issuesOnlyInput.checked) {
+    if (issueRows) {
+      content += renderFullTable(["Name", "Status", "Detail", "Temp"], issueRows);
+    }
+    content += renderCompactList("Healthy", healthyItems);
+  } else {
+    const allRows = groups.all
+      .map((row) => {
+        const temp = latestTemp(row);
+        return `
+          <tr>
+            <td>${escapeHtml(row.name)}</td>
+            <td>${statusBadge(rowStatus(row, "ip_devices"))}</td>
+            <td>${escapeHtml(row.detail || "-")}</td>
+            <td class="compact">${temp === undefined ? "-" : `${temp.toFixed(1)} C`}</td>
+          </tr>
+        `;
+      })
+      .join("");
+    content = renderFullTable(["Name", "Status", "Detail", "Temp"], allRows);
   }
 
   return `
     <section class="panel">
-      ${sectionHeadline(meta, {
-        title: "IP devices",
-        copy: "Direct polls against each device health endpoint.",
-      })}
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Status</th>
-              <th>Detail</th>
-              <th>Temp</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
+      ${sectionHeadline(meta, "IP devices", "Direct polls against each device health endpoint.")}
+      ${content}
     </section>
   `;
 }
 
 function renderRunnerTable(title, rowsData, meta, sectionKey) {
-  const rows = rowsData
-    .filter((row) => rowMatches(`${row.name} ${row.detail || ""} ${row.path || ""}`, row.warn || !row.ok))
+  const groups = splitRows(
+    rowsData,
+    (row) => row.warn || !row.ok,
+    (row) => `${row.name} ${row.detail || ""} ${row.path || ""}`,
+  );
+
+  if (!groups.all.length) {
+    return "";
+  }
+
+  const issueRows = groups.issues
     .map((row) => `
       <tr>
         <td>${escapeHtml(row.name)}</td>
@@ -304,29 +364,31 @@ function renderRunnerTable(title, rowsData, meta, sectionKey) {
     `)
     .join("");
 
-  if (!rows) {
-    return "";
+  const healthyItems = groups.healthy.map((row) => row.pending ? `${row.name} · ${row.pending} pending` : row.name);
+  let content = "";
+  if (issuesOnlyInput.checked) {
+    if (issueRows) {
+      content += renderFullTable(["Name", "Status", "Detail", "Pending"], issueRows);
+    }
+    content += renderCompactList("Healthy", healthyItems);
+  } else {
+    const allRows = groups.all
+      .map((row) => `
+        <tr>
+          <td>${escapeHtml(row.name)}</td>
+          <td>${statusBadge(rowStatus(row, sectionKey))}</td>
+          <td>${escapeHtml(row.detail || "-")}</td>
+          <td class="compact">${escapeHtml(row.pending ?? 0)}</td>
+        </tr>
+      `)
+      .join("");
+    content = renderFullTable(["Name", "Status", "Detail", "Pending"], allRows);
   }
 
   return `
     <section class="panel">
-      ${sectionHeadline(meta, {
-        title,
-        copy: "Last known state stays visible even if the source goes stale.",
-      })}
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Status</th>
-              <th>Detail</th>
-              <th>Pending</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
+      ${sectionHeadline(meta, title, "Last known state stays visible even if the source goes stale.")}
+      ${content}
     </section>
   `;
 }
@@ -335,7 +397,14 @@ function renderStorage(snapshot) {
   const meta = snapshot.meta.storage || {};
   const rows = ["local", "cloud"]
     .map((key) => ({ key, value: snapshot.storage?.[key] }))
-    .filter(({ key, value }) => rowMatches(`${key} ${value?.name || ""}`, storageVolumeStatus(value) !== "ok"))
+    .filter(({ key, value }) => matchesSearch(`${key} ${value?.name || ""}`));
+
+  if (!rows.length) {
+    return "";
+  }
+
+  const issueRows = rows
+    .filter(({ value }) => storageVolumeStatus(value) !== "ok")
     .map(({ key, value }) => {
       const current = value?.current || {};
       const status = storageVolumeStatus(value);
@@ -344,37 +413,48 @@ function renderStorage(snapshot) {
           <td>${escapeHtml(value?.name || key)}</td>
           <td>${statusBadge(status)}</td>
           <td class="compact">${escapeHtml(Number(current.used_gb || 0).toFixed(1))} / ${escapeHtml(Number(current.total_gb || 0).toFixed(1))} GB</td>
-          <td class="compact">${escapeHtml(Number(current.free_gb || 0).toFixed(1))} GB</td>
           <td class="compact">${escapeHtml(Number(current.percent_used || 0).toFixed(1))}%</td>
         </tr>
       `;
     })
     .join("");
 
-  if (!rows) {
-    return "";
+  const healthyItems = rows
+    .filter(({ value }) => storageVolumeStatus(value) === "ok")
+    .map(({ key, value }) => {
+      const current = value?.current || {};
+      return `${value?.name || key} · ${Number(current.percent_used || 0).toFixed(1)}%`;
+    });
+
+  let content = "";
+  if (issuesOnlyInput.checked) {
+    if (issueRows) {
+      content += renderFullTable(["Volume", "Status", "Used", "Percent"], issueRows);
+    }
+    content += renderCompactList("Healthy", healthyItems);
+  } else {
+    const allRows = rows
+      .map(({ key, value }) => {
+        const current = value?.current || {};
+        const status = storageVolumeStatus(value);
+        return `
+          <tr>
+            <td>${escapeHtml(value?.name || key)}</td>
+            <td>${statusBadge(status)}</td>
+            <td class="compact">${escapeHtml(Number(current.used_gb || 0).toFixed(1))} / ${escapeHtml(Number(current.total_gb || 0).toFixed(1))} GB</td>
+            <td class="compact">${escapeHtml(Number(current.free_gb || 0).toFixed(1))} GB</td>
+            <td class="compact">${escapeHtml(Number(current.percent_used || 0).toFixed(1))}%</td>
+          </tr>
+        `;
+      })
+      .join("");
+    content = renderFullTable(["Volume", "Status", "Used", "Free", "Percent"], allRows);
   }
 
   return `
     <section class="panel">
-      ${sectionHeadline(meta, {
-        title: "Storage",
-        copy: "Only storage warnings and errors are shown by default.",
-      })}
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Volume</th>
-              <th>Status</th>
-              <th>Used</th>
-              <th>Free</th>
-              <th>Percent</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
+      ${sectionHeadline(meta, "Storage", "Healthy storage still shows, just in a compact form when issue emphasis is on.")}
+      ${content}
     </section>
   `;
 }
@@ -391,8 +471,8 @@ function renderTables(snapshot) {
   if (!panels.length) {
     tablesRoot.innerHTML = `
       <section class="panel empty-panel">
-        <h2>No current issues</h2>
-        <p class="meta-copy">Everything visible matches your current filters. Turn off "Only issues" to inspect all rows.</p>
+        <h2>No matching rows</h2>
+        <p class="meta-copy">Nothing matches the current search filter.</p>
       </section>
     `;
     return;
