@@ -1,7 +1,7 @@
 """Alert checking and push notifications to NanoClaw.
 
-Called after every Dashboard.refresh() cycle. Checks the in-memory dashboard
-data against alert thresholds and POSTs a notification to NanoClaw when
+Called after every refresh cycle. Checks the latest snapshot data against
+alert thresholds and POSTs a notification to NanoClaw when
 conditions are met. Alert state is persisted to alert_state.json so
 restarts don't re-fire already-sent alerts.
 
@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from main import Dashboard
+    from stats.office.models import OfficeSnapshot
 
 STATE_FILE = Path(__file__).parent / "alert_state.json"
 NOTIFY_URL = os.environ.get("NANOCLAW_NOTIFY_URL", "").rstrip("/") + "/notify"
@@ -72,25 +72,29 @@ def _push(text: str) -> bool:
 
 # ── Alert logic ───────────────────────────────────────────────────────────────
 
-def check_and_notify(dash: Dashboard) -> None:
-    """Check dashboard data against alert thresholds and push if needed."""
+def check_and_notify(snapshot: OfficeSnapshot) -> None:
+    """Check snapshot data against alert thresholds and push if needed."""
     state = _load_state()
     changed = False
 
+    ip_devices = snapshot.sections["ip_devices"].payload
+    device_states = snapshot.sections["devices"].payload
+
     # ── IP Devices ────────────────────────────────────────────────────────────
     ip_states: dict = state.setdefault("ip_devices", {})
-    for dev in dash.ip_devices:
-        s = ip_states.setdefault(dev.name, {"consecutive_failures": 0, "notified": False})
+    for dev in ip_devices:
+        name = dev.get("name", "unknown")
+        s = ip_states.setdefault(name, {"consecutive_failures": 0, "notified": False})
 
-        if not dev.ok:
+        if not dev.get("ok"):
             s["consecutive_failures"] += 1
             changed = True
             if s["consecutive_failures"] >= IP_FAIL_THRESHOLD and not s["notified"]:
-                if _push(f"{dev.name} unreachable"):
+                if _push(f"{name} unreachable"):
                     s["notified"] = True
         else:
             if s["notified"]:
-                if _push(f"{dev.name} back online"):
+                if _push(f"{name} back online"):
                     s["consecutive_failures"] = 0
                     s["notified"] = False
                     changed = True
@@ -100,19 +104,20 @@ def check_and_notify(dash: Dashboard) -> None:
 
     # ── Camera Devices ────────────────────────────────────────────────────────
     dev_states: dict = state.setdefault("devices", {})
-    for dev in dash.devices:
-        s = dev_states.setdefault(dev.name, {"notified_offline": False})
+    for dev in device_states:
+        name = dev.get("name", "unknown")
+        s = dev_states.setdefault(name, {"notified_offline": False})
 
-        age = dev.age_minutes if dev.age_minutes is not None else 0
+        age = dev.get("age_minutes") or 0
         is_offline = age > DEVICE_OFFLINE_MINUTES
 
         if is_offline and not s["notified_offline"]:
             hours, mins = divmod(int(age), 60)
-            if _push(f"{dev.name} offline {hours}h{mins:02d}m"):
+            if _push(f"{name} offline {hours}h{mins:02d}m"):
                 s["notified_offline"] = True
                 changed = True
         elif not is_offline and s["notified_offline"]:
-            if _push(f"{dev.name} back online"):
+            if _push(f"{name} back online"):
                 s["notified_offline"] = False
                 changed = True
 

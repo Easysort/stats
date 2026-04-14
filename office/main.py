@@ -1,170 +1,26 @@
-"""Easysort Stats Dashboard - raylib-based monitoring UI."""
+"""Entry point for the hosted office dashboard."""
 from __future__ import annotations
+
 import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(__file__))
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+import uvicorn
 
-from pyray import *
-from health import (
-    get_device_health,
-    get_ip_device_health,
-    get_runner_health,
-    get_tracking_health,
-    DeviceStatus,
-    IPDeviceStatus,
-    RunnerStatus,
-)
-from storage import get_all_storage, StorageHistory
-from charts import (
-    draw_line_chart,
-    draw_status_card,
-    draw_device_card,
-    draw_storage_summary,
-    draw_ip_device_temp_chart,
-)
-from easysort.registry import RegistryBase
-from easysort.helpers import REGISTRY_LOCAL_IP
-from api import start_api
-from alerts import check_and_notify
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+  sys.path.insert(0, str(ROOT))
 
-Registry = RegistryBase(base=REGISTRY_LOCAL_IP)
-DEVICES_TXT = Path(__file__).parent / "devices.txt"
-MKV_VOLUME = os.getenv("MKV_VOLUME", "/media/easysort/lenovo")
-REFRESH_INTERVAL, HEAVY_INTERVAL, PAD = 180, 1800, 24  # 3min light, 30 min heavy
+from stats.office.server import create_app
 
-class Dashboard:
-    def __init__(self):
-        self.devices: list[DeviceStatus] = []
-        self.ip_devices: list[IPDeviceStatus] = []
-        self.runners: list[RunnerStatus] = []
-        self.tracking: list[RunnerStatus] = []
-        self.mkv_storage: StorageHistory | None = None
-        self.supabase_storage: StorageHistory | None = None
-        self.last_refresh = self.last_heavy = self.scroll_y = 0
+HOST = os.environ.get("STATS_HOST", "0.0.0.0")
+PORT = int(os.environ.get("STATS_PORT", os.environ.get("STATS_API_PORT", "8150")))
+LOG_LEVEL = os.environ.get("STATS_LOG_LEVEL", "info")
 
-    def refresh(self, heavy: bool = False):
-        if heavy:
-            try: Registry.SYNC()
-            except Exception as e: print(f"Sync error: {e}")
-            self.last_heavy = get_time()
-        self.devices = get_device_health(Registry.backend)
-        self.ip_devices = get_ip_device_health(DEVICES_TXT)
-        self.runners = get_runner_health(Registry.backend)
-        self.tracking = get_tracking_health(heavy)
-        self.mkv_storage, self.supabase_storage = get_all_storage(MKV_VOLUME, save=heavy)
-        try:
-            check_and_notify(self)
-        except Exception as e:
-            print(f"[alerts] Error during alert check: {e}")
 
-    def update(self):
-        t = get_time()
-        if t - self.last_heavy > HEAVY_INTERVAL:
-            self.refresh(heavy=True)
-            self.last_heavy = t
-            self.last_refresh = t
-        elif t - self.last_refresh > REFRESH_INTERVAL:
-            self.refresh()
-            self.last_refresh = t
-        self.scroll_y = max(0, self.scroll_y - int(get_mouse_wheel_move() * 40))
-        
-    def draw(self):
-        w, h = get_screen_width(), get_screen_height()
-        clear_background(Color(18, 18, 22, 255))
-        y = PAD - self.scroll_y
-        
-        # Header
-        draw_text("EASYSORT", PAD, y, 32, WHITE)
-        next_soft = max(0, int(REFRESH_INTERVAL - (get_time() - self.last_refresh)))
-        next_heavy = max(0, int(HEAVY_INTERVAL - (get_time() - self.last_heavy)))
-        draw_text(f"refresh {next_soft}s | sync {next_heavy // 60}m{next_heavy % 60:02d}s", w - PAD - 220, y + 10, 14, Color(80, 80, 90, 255))
-        y += 56
-        
-        # Storage (local only; cloud overview removed)
-        if self.mkv_storage:
-            cw = w - PAD * 2
-            draw_storage_summary(PAD, y, cw, "Local", self.mkv_storage.current.used_gb, self.mkv_storage.current.total_gb)
-            y += 72
-            ch = 140
-            qw = (w - PAD * 3) // 2
-            draw_line_chart(PAD, y, qw, ch, self.mkv_storage.week_data(), "Local 7d", Color(100, 180, 255, 255), 7)
-            draw_line_chart(PAD * 2 + qw, y, qw, ch, self.mkv_storage.month_data(2), "Local 60d", Color(100, 180, 255, 255), 60)
-            y += ch + PAD
-        
-        # Devices (denser grid for many devices)
-        draw_text("DEVICES", PAD, y, 16, Color(90, 90, 100, 255))
-        if self.devices:
-            down = sum(1 for d in self.devices if not d.ok)
-            draw_text(f"{len(self.devices)} devices" + (f" · {down} down" if down else " · all ok"), PAD + 100, y, 13, Color(90, 90, 100, 255))
-        y += 28
-        cols = max(1, (w - PAD) // 200)
-        card_w = (w - PAD * (cols + 1)) // cols
-        device_card_h = 76
-        for i, dev in enumerate(self.devices):
-            detail = f"{dev.age_minutes}m ago" if dev.age_minutes is not None else (dev.error or "—")
-            draw_device_card(PAD + (i % cols) * (card_w + PAD), y + (i // cols) * device_card_h, card_w, dev.name, dev.ok, detail, dev.last_path)
-        if self.devices:
-            y += ((len(self.devices) - 1) // cols + 1) * device_card_h + PAD
+def main() -> None:
+  uvicorn.run(create_app(), host=HOST, port=PORT, log_level=LOG_LEVEL)
 
-        # IP devices (from devices.txt, /health on each) with temp-over-time chart
-        ip_card_h = 68
-        temp_chart_h = 72
-        ip_device_row_h = ip_card_h + temp_chart_h
-        if self.ip_devices:
-            draw_text("IP DEVICES", PAD, y, 16, Color(90, 90, 100, 255))
-            y += 28
-            checked_ago = int(get_time() - self.last_refresh)
-            for i, dev in enumerate(self.ip_devices):
-                px = PAD + (i % cols) * (card_w + PAD)
-                py = y + (i // cols) * ip_device_row_h
-                draw_device_card(
-                    px, py, card_w,
-                    dev.name, dev.ok, dev.detail, None, over_temp=dev.over_temp,
-                    checked_ago_seconds=checked_ago,
-                    tmux_running=dev.tmux_running,
-                )
-                if dev.temp_history:
-                    draw_ip_device_temp_chart(px, py + ip_card_h, card_w, temp_chart_h, dev.temp_history)
-            y += ((len(self.ip_devices) - 1) // cols + 1) * ip_device_row_h + PAD
-
-        # Runners
-        draw_text("RUNNERS", PAD, y, 16, Color(90, 90, 100, 255))
-        if self.runners:
-            down = sum(1 for r in self.runners if not r.ok)
-            draw_text(f"{len(self.runners)} runners" + (f" · {down} down" if down else " · all ok"), PAD + 90, y, 13, Color(90, 90, 100, 255))
-        y += 28
-        runner_card_h = 76
-        for i, r in enumerate(self.runners):
-            draw_status_card(PAD + (i % cols) * (card_w + PAD), y + (i // cols) * runner_card_h, card_w, r.name, r.ok, r.detail, r.warn, r.path)
-        if self.runners: y += ((len(self.runners) - 1) // cols + 1) * runner_card_h + PAD
-        
-        # Tracking Service
-        draw_text("TRACKING SERVICE", PAD, y, 16, Color(90, 90, 100, 255))
-        if self.tracking:
-            down = sum(1 for t in self.tracking if not t.ok)
-            draw_text(f"{len(self.tracking)} checks" + (f" · {down} down" if down else " · ok"), PAD + 140, y, 13, Color(90, 90, 100, 255))
-        y += 28
-        for i, t in enumerate(self.tracking):
-            draw_status_card(PAD + (i % cols) * (card_w + PAD), y + (i // cols) * runner_card_h, card_w, t.name, t.ok, t.detail, t.warn, t.path)
-
-def main():
-    set_config_flags(2 | 64)  # FLAG_FULLSCREEN_MODE | FLAG_VSYNC_HINT
-    init_window(0, 0, "Easysort Stats")
-    
-    dash = Dashboard()
-    dash.refresh(heavy=True)
-    start_api(dash)
-    
-    while not window_should_close():
-        dash.update()
-        begin_drawing()
-        dash.draw()
-        end_drawing()
-    
-    close_window()
 
 if __name__ == "__main__":
-    main()
+  main()

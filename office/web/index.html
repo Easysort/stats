@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Easysort Office Dashboard</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">LAN-hosted monitoring</p>
+        <h1>Easysort Office Dashboard</h1>
+        <p class="subtle" id="status-line">Loading latest snapshot...</p>
+      </div>
+      <div class="toolbar">
+        <label class="control">
+          <span>Search</span>
+          <input id="search-input" type="search" placeholder="device, runner, path...">
+        </label>
+        <label class="checkbox">
+          <input id="issues-only" type="checkbox">
+          <span>Only issues and stale data</span>
+        </label>
+      </div>
+    </header>
+
+    <main class="content">
+      <section class="summary-grid" id="summary-grid"></section>
+      <section class="section-grid" id="section-grid"></section>
+      <section id="tables-root"></section>
+    </main>
+  </div>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

@@ -1,1 +1,6 @@
 office/devices.txt
+office/alert_state.json
+office/ip_device_temp_history.json
+office/.storage_history.json
+office/state/
+office/__pycache__/
