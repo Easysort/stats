@@ -76,7 +76,7 @@ Runner health (verdis uploader, inference). Each entry:
 
 ### `GET /api/tracking`
 
-Tracking service health (argo weeks/months). Same schema as runners.
+Tracking service health (argo + kk weeks/months). Same schema as runners.
 
 ### `GET /api/storage`
 

@@ -152,8 +152,10 @@ def _history_to_tuples(entries: list[dict]) -> list[tuple[datetime, float | None
 
 
 def _fetch_one_ip_device(name: str, ip: str) -> tuple[str, bool, str, bool, bool, float | None]:
-    """Fetch /health for one device. Returns (name, ok, detail, over_temp, tmux_running, temp_val)."""
-    url = f"http://{ip}:5000/health"
+    """Fetch /health for one device. Returns (name, ok, detail, over_temp, tmux_running, temp_val).
+    `ip` may include a port (e.g. '1.2.3.4:8080'); otherwise port 5000 is assumed."""
+    host = ip if ":" in ip else f"{ip}:5000"
+    url = f"http://{host}/health"
     temp_val: float | None = None
     tmux_running = False
     over_temp = False
@@ -280,28 +282,36 @@ def get_runner_health(registry_backend=None) -> list[RunnerStatus]:
 
     return results
 
+TRACKING_SOURCES: list[tuple[str, str]] = [
+    ("argo", "argo/tent"),
+    ("kk", "kk/tent"),
+]
+
 def get_tracking_health(heavy: bool = False) -> list[RunnerStatus]:
     """Get health status for tracking services. Checks on every sync."""
-    return _check_argo_weeks()
+    results: list[RunnerStatus] = []
+    for name_prefix, bucket_prefix in TRACKING_SOURCES:
+        results.extend(_check_tracking_weeks(name_prefix, bucket_prefix))
+    return results
 
-def _check_argo_weeks() -> list[RunnerStatus]:
-    """Check argo week/month results in Supabase - returns status for last week and last month."""
+def _check_tracking_weeks(name_prefix: str, bucket_prefix: str) -> list[RunnerStatus]:
+    """Check week/month results in Supabase under {bucket_prefix} - returns status for last week and last month."""
     results = []
-    
+
     if not SUPABASE_URL or not SUPABASE_KEY:
-        return [RunnerStatus("argo-tracking", ok=False, detail="no supabase config")]
-    
+        return [RunnerStatus(f"{name_prefix}-tracking", ok=False, detail="no supabase config")]
+
     try:
         client = create_client(SUPABASE_URL, SUPABASE_KEY)
         bucket = client.storage.from_("easytrack")
-        files = bucket.list("argo/tent")
+        files = bucket.list(bucket_prefix)
         file_names = {f["name"] for f in files}
     except Exception as e:
-        return [RunnerStatus("argo-tracking", ok=False, detail=str(e)[:30])]
-    
+        return [RunnerStatus(f"{name_prefix}-tracking", ok=False, detail=str(e)[:30])]
+
     now = datetime.now()
     year, current_week, _ = now.isocalendar()
-    
+
     # Check last 4 weeks
     week_status = []
     for i in range(1, 5):  # weeks 1-4 ago
@@ -313,7 +323,7 @@ def _check_argo_weeks() -> list[RunnerStatus]:
         week_file = f"week_{w}_{y}.json"
         has_week = week_file in file_names
         week_status.append((w, y, has_week))
-    
+
     # Build week detail text
     week_parts = []
     missing_weeks = []
@@ -323,18 +333,18 @@ def _check_argo_weeks() -> list[RunnerStatus]:
         else:
             week_parts.append(f"w{w}-")
             missing_weeks.append(w)
-    
+
     week_detail = " ".join(week_parts)
     week_ok = len(missing_weeks) == 0
     week_warn = len(missing_weeks) == 1 and missing_weeks[0] == week_status[0][0]  # Only last week missing is warn
-    
+
     results.append(RunnerStatus(
-        "argo-weeks", 
+        f"{name_prefix}-weeks",
         ok=week_ok or week_warn,
         warn=week_warn,
         detail=week_detail
     ))
-    
+
     # Check last 2 months
     month_status = []
     for i in range(1, 3):  # months 1-2 ago
@@ -346,7 +356,7 @@ def _check_argo_weeks() -> list[RunnerStatus]:
         month_file = f"month_{m}_{y}.json"
         has_month = month_file in file_names
         month_status.append((m, y, has_month))
-    
+
     # Build month detail text
     month_parts = []
     missing_months = []
@@ -357,18 +367,18 @@ def _check_argo_weeks() -> list[RunnerStatus]:
         else:
             month_parts.append(f"{month_name}-")
             missing_months.append(m)
-    
+
     month_detail = " ".join(month_parts)
     month_ok = len(missing_months) == 0
     month_warn = len(missing_months) == 1 and missing_months[0] == month_status[0][0]  # Only last month missing is warn
-    
+
     results.append(RunnerStatus(
-        "argo-months",
+        f"{name_prefix}-months",
         ok=month_ok or month_warn,
         warn=month_warn,
         detail=month_detail
     ))
-    
+
     return results
 
 UPLOADER_PREFIXES = ["verdis/gadstrup/5", "verdis/gadstrup/9"]
